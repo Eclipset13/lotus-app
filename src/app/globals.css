@@ -31,7 +31,6 @@ a {
 }
 
 a {
-  color: inherit;
   text-decoration: none;
 }
 
@@ -93,13 +92,13 @@ a {
   }
 }
 
-nav {
+.header nav {
   display: flex;
   gap: 34px;
   font-size: 14px;
 }
 
-nav a:hover {
+.header nav a:hover {
   color: var(--dark-pink);
 }
 
@@ -332,7 +331,7 @@ h1 span {
 }
 
 @media (max-width: 900px) {
-  nav {
+  .header nav {
     display: none;
   }
 
