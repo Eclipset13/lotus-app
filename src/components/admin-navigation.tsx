@@ -16,6 +16,12 @@ const navigation = [
     icon: "🌷",
     exact: false,
   },
+  {
+    href: "/admin/suppliers",
+    label: "Поставщики",
+    icon: "🏢",
+    exact: false,
+  },
 ];
 
 export function AdminNavigation() {
