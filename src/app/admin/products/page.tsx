@@ -17,6 +17,8 @@ type Product = {
     price: string;
     image_url: string | null;
     is_active: boolean;
+    composition_items: number;
+    composition_quantity: number;
 };
 
 function formatMoney(value: string) {
@@ -33,11 +35,15 @@ export default async function AdminProductsPage() {
       id::text,
       name,
       description,
-      price::text,
-      image_url,
-      is_active
-    FROM products
-    ORDER BY created_at DESC
+      b.sale_price::text AS price,
+      b.image_url,
+      b.is_active,
+      count(bi.flower_id)::int AS composition_items,
+      COALESCE(sum(bi.quantity), 0)::int AS composition_quantity
+    FROM public.bouquets b
+    LEFT JOIN public.bouquet_items bi ON bi.bouquet_id = b.id
+    GROUP BY b.id
+    ORDER BY b.created_at DESC
   `);
 
     const products = result.rows;
@@ -171,6 +177,12 @@ export default async function AdminProductsPage() {
                                         {product.description || "Описание пока не добавлено"}
                                     </p>
 
+                                    <p className={`mt-3 text-xs font-semibold ${product.composition_items > 0 ? "text-green-700" : "text-orange-700"}`}>
+                                        {product.composition_items > 0
+                                            ? `Состав настроен · ${product.composition_quantity} шт.`
+                                            : "Состав не настроен"}
+                                    </p>
+
                                     <div className="mt-5 flex gap-2 border-t border-[#f3e6e1] pt-4">
                                         <Link
                                             href={`/admin/products/${product.id}/edit`}
@@ -182,7 +194,9 @@ export default async function AdminProductsPage() {
                                         <form action={toggleProductVisibility.bind(null, product.id)}>
                                             <button
                                                 type="submit"
-                                                className="h-full rounded-xl border border-[#ead8d1] px-4 py-2.5 text-sm font-medium text-[#806e68] transition hover:bg-[#fff4f1]"
+                                                disabled={!product.is_active && product.composition_items === 0}
+                                                title={!product.is_active && product.composition_items === 0 ? "Сначала настройте состав" : undefined}
+                                                className="h-full rounded-xl border border-[#ead8d1] px-4 py-2.5 text-sm font-medium text-[#806e68] transition hover:bg-[#fff4f1] disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                                 {product.is_active ? "Скрыть" : "Показать"}
                                             </button>

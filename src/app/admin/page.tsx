@@ -19,6 +19,10 @@ import {
   type CustomBouquetConfig,
   type CustomBouquetSummary,
 } from "@/lib/bouquet";
+import {
+  getOrderFlowerRequirements,
+  type OrderFlowerRequirementsResult,
+} from "@/lib/order-flower-requirements";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +95,72 @@ function formatDate(value: Date) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(value);
+}
+
+function OrderRequirementsCard({
+  result,
+}: {
+  result: OrderFlowerRequirementsResult;
+}) {
+  const status = !result.canCalculate
+    ? {
+        title: "Состав не настроен",
+        message: "Нельзя рассчитать состав заказа",
+        className: "border-orange-200 bg-orange-50 text-orange-900",
+      }
+    : result.hasShortage
+      ? {
+          title: "Не хватает цветов",
+          message: result.requirements
+            .filter((item) => item.missingQuantity > 0)
+            .map((item) => `${item.name} — ${item.missingQuantity} шт.`)
+            .join(", "),
+          className: "border-red-200 bg-red-50 text-red-900",
+        }
+      : {
+          title: "Можно собрать",
+          message: "Все цветы есть на складе",
+          className: "border-green-200 bg-green-50 text-green-900",
+        };
+
+  return (
+    <section className={`border-t px-6 py-5 md:px-8 ${status.className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-serif text-xl">Потребность со склада</h3>
+        <span className="rounded-full bg-white/80 px-3 py-1.5 text-xs font-semibold">
+          {status.title}
+        </span>
+      </div>
+      <p className="mt-2 text-sm font-medium">
+        {result.hasShortage && result.canCalculate ? "Не хватает: " : ""}
+        {status.message}
+      </p>
+
+      {result.requirements.length > 0 && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {result.requirements.map((item) => (
+            <div key={item.flowerId} className="rounded-2xl border border-current/10 bg-white/75 px-4 py-3 text-sm">
+              <p className="font-semibold">{item.name}</p>
+              <p className="mt-1 opacity-80">
+                Требуется: {item.requiredQuantity} · На складе: {item.stockQuantity}
+              </p>
+              {item.missingQuantity > 0 && (
+                <p className="mt-1 font-semibold text-red-700">
+                  Дефицит: {item.missingQuantity}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {result.errors.length > 0 && (
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
+          {result.errors.map((error) => <li key={error}>{error}</li>)}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 type AdminPageProps = {
@@ -280,6 +350,26 @@ export default async function AdminPage({
         );
     }
   });
+
+  let requirementsByOrder: Map<string, OrderFlowerRequirementsResult>;
+  try {
+    requirementsByOrder = await getOrderFlowerRequirements(
+      orders.map((order) => order.id),
+    );
+  } catch (error) {
+    console.error("Admin order flower requirements failed:", error);
+    requirementsByOrder = new Map(
+      orders.map((order) => [
+        order.id,
+        {
+          requirements: [],
+          errors: ["Настройка складского состава временно недоступна"],
+          canCalculate: false,
+          hasShortage: false,
+        },
+      ]),
+    );
+  }
 
   const activeStatuses = [
     "confirmed",
@@ -744,6 +834,15 @@ export default async function AdminPage({
                     </div>
                   </section>
                 </div>
+
+                <OrderRequirementsCard
+                  result={requirementsByOrder.get(order.id) ?? {
+                    requirements: [],
+                    errors: ["Нельзя рассчитать состав заказа"],
+                    canCalculate: false,
+                    hasShortage: false,
+                  }}
+                />
 
                 <div className="border-t border-[#f0dfd9] bg-[#fffdfc] px-6 py-5 md:px-8">
                   <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">

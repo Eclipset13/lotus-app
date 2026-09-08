@@ -23,6 +23,7 @@ type Flower = {
   min_stock_quantity: number;
   image_url: string | null;
   is_active: boolean;
+  constructor_kind: string | null;
 };
 
 type StockMovement = {
@@ -136,7 +137,8 @@ export default async function InventoryFlowerPage({
                f.stock_quantity,
                f.min_stock_quantity,
                f.image_url,
-               f.is_active
+               f.is_active,
+               f.constructor_kind
         FROM public.flowers f
         LEFT JOIN public.categories c ON c.id = f.category_id
         WHERE f.id = $1::bigint
@@ -222,6 +224,11 @@ export default async function InventoryFlowerPage({
               <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${flower.is_active ? "bg-green-50 text-green-700" : "bg-[#f5ece9] text-[#9a746c]"}`}>
                 {flower.is_active ? "Активен" : "Неактивен"}
               </span>
+              {flower.constructor_kind && (
+                <span className="rounded-full bg-[#fbe5e8] px-3 py-1.5 text-xs font-semibold text-[#9d4255]">
+                  3D: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
+                </span>
+              )}
             </div>
             <dl className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               <div>
@@ -255,8 +262,9 @@ export default async function InventoryFlowerPage({
         <AdminInventoryControls
           flowerId={flower.id}
           stockQuantity={flower.stock_quantity}
-          minimumStock={flower.min_stock_quantity}
-        />
+        minimumStock={flower.min_stock_quantity}
+        constructorKind={flower.constructor_kind}
+      />
 
         <section className="mt-6 overflow-hidden rounded-[28px] border border-[#f0dfd9] bg-white">
           <div className="border-b border-[#f3e6e1] px-6 py-5">

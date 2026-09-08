@@ -71,3 +71,38 @@ psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\2026090
 Миграция создаёт документы `purchases`, их позиции `purchase_items` и связь
 `stock_movements.purchase_id`. Повторный запуск безопасен. Существующие типы
 складских движений не изменяются; текущая база уже допускает тип `purchase`.
+
+## Связь цветов со складским составом 3D-конструктора
+
+Файл миграции: `20260908_flower_constructor_kind.sql`.
+
+В pgAdmin откройте базу `lotus_db` под владельцем таблицы (`postgres`), затем
+**Tools → Query Tool**, откройте файл
+`D:\Projects\lotus-app\src\db\migrations\20260908_flower_constructor_kind.sql`
+и выполните его клавишей `F5`.
+
+Эквивалентная команда PowerShell при доступном `psql`:
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260908_flower_constructor_kind.sql"
+```
+
+Миграция идемпотентно добавляет nullable-поле `flowers.constructor_kind`,
+ограничивает значения ключами `rose`, `peony`, `tulip` и гарантирует, что
+каждый ключ связан не более чем с одним складским цветком. Существующие цветы
+автоматически не сопоставляются и не изменяются.
+
+Проверка после применения:
+
+```sql
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'flowers'
+  AND column_name = 'constructor_kind';
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'public.flowers'::regclass
+  AND conname = 'flowers_constructor_kind_check';
+```

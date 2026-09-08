@@ -22,6 +22,7 @@ const MAX_BIGINT = "9223372036854775807";
 const MAX_QUANTITY = 2_147_483_647;
 const MAX_MIN_STOCK = 1_000_000;
 const MAX_REASON_LENGTH = 500;
+const CONSTRUCTOR_KINDS = new Set(["rose", "peony", "tulip"]);
 
 function isDatabaseId(value: string) {
   return (
@@ -203,4 +204,58 @@ export async function updateMinimumStock(
 
   revalidateInventory(flowerId);
   return { error: "", message: "Минимальный остаток сохранён" };
+}
+
+export async function updateConstructorKind(
+  flowerId: string,
+  _previousState: InventoryActionState,
+  formData: FormData,
+): Promise<InventoryActionState> {
+  if (!(await isAdminAuthenticated())) {
+    return { error: "Требуется вход администратора", message: "" };
+  }
+  if (!isDatabaseId(flowerId)) {
+    return { error: "Цветок не найден", message: "" };
+  }
+
+  const rawKind = String(formData.get("constructor_kind") ?? "").trim();
+  if (rawKind && !CONSTRUCTOR_KINDS.has(rawKind)) {
+    return { error: "Выберите допустимый тип цветка", message: "" };
+  }
+
+  try {
+    const result = await db.query(
+      `
+        UPDATE public.flowers
+        SET constructor_kind = $1,
+            updated_at = NOW()
+        WHERE id = $2::bigint
+        RETURNING id
+      `,
+      [rawKind || null, flowerId],
+    );
+    if (result.rowCount !== 1) {
+      return { error: "Цветок не найден", message: "" };
+    }
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "23505"
+    ) {
+      return {
+        error: "Этот тип уже связан с другим цветком",
+        message: "",
+      };
+    }
+    console.error("updateConstructorKind failed:", error);
+    return {
+      error: "Не удалось сохранить связь с 3D-конструктором",
+      message: "",
+    };
+  }
+
+  revalidateInventory(flowerId);
+  return { error: "", message: "Связь с 3D-конструктором сохранена" };
 }

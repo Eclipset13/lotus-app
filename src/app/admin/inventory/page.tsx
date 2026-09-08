@@ -30,6 +30,7 @@ type InventoryFlower = {
   image_url: string | null;
   is_active: boolean;
   last_movement_at: Date | null;
+  constructor_kind: string | null;
 };
 
 type Category = { id: string; name: string };
@@ -174,6 +175,7 @@ export default async function AdminInventoryPage({
                f.min_stock_quantity,
                f.image_url,
                f.is_active,
+               f.constructor_kind,
                lm.last_movement_at
         FROM public.flowers f
         LEFT JOIN public.categories c ON c.id = f.category_id
@@ -336,9 +338,14 @@ export default async function AdminInventoryPage({
                             )}
                             <div>
                               <p className="font-semibold">{flower.name}</p>
-                              <p className="mt-1 text-xs text-[#99817a]">
-                                {flower.is_active ? "Активен" : "Неактивен"}
-                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[#99817a]">
+                                <span>{flower.is_active ? "Активен" : "Неактивен"}</span>
+                                {flower.constructor_kind && (
+                                  <span className="rounded-full bg-[#fbe5e8] px-2 py-0.5 font-semibold text-[#9d4255]">
+                                    3D: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
