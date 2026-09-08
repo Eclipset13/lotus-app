@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
+import { AdminSelect } from "@/components/admin-filter-select";
 import { BrandLogo } from "@/components/brand-logo";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
@@ -174,16 +175,18 @@ export default async function AdminPurchasesPage({
             </label>
             <label className="text-xs font-bold uppercase tracking-[0.16em] text-[#99817a]">
               Статус
-              <select
+              <AdminSelect
+                className="mt-2"
                 name="status"
                 defaultValue={status}
-                className="mt-2 h-12 w-full rounded-2xl border border-[#ead8d1] bg-[#fffaf8] px-4 text-sm font-normal normal-case tracking-normal outline-none focus:border-[#d89b91] focus:ring-4 focus:ring-[#f4cbc4]/25"
-              >
-                <option value="all">Все</option>
-                <option value="draft">Черновики</option>
-                <option value="posted">Проведённые</option>
-                <option value="cancelled">Отменённые</option>
-              </select>
+                ariaLabel="Выбрать статус поступления"
+                options={[
+                  { value: "all", label: "Все" },
+                  { value: "draft", label: "Черновики" },
+                  { value: "posted", label: "Проведённые" },
+                  { value: "cancelled", label: "Отменённые" },
+                ]}
+              />
             </label>
             <button
               type="submit"

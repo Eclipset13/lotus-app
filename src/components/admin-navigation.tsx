@@ -28,6 +28,12 @@ const navigation = [
     icon: "🚚",
     exact: false,
   },
+  {
+    href: "/admin/inventory",
+    label: "Склад",
+    icon: "🌿",
+    exact: false,
+  },
 ];
 
 export function AdminNavigation() {

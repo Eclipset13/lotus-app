@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useMemo, useRef, useState } from "react";
 import type { PurchaseActionState } from "@/app/admin/purchases/actions";
+import { AdminSelect } from "@/components/admin-filter-select";
 
 export type PurchaseSupplierOption = {
   id: string;
@@ -128,30 +129,25 @@ export function AdminPurchaseForm({
   return (
     <form
       action={formAction}
-      className="mt-8 overflow-hidden rounded-[32px] border border-[#f0dfd9] bg-white shadow-[0_20px_60px_rgba(74,48,41,0.06)]"
+      className="mt-8 overflow-visible rounded-[32px] border border-[#f0dfd9] bg-white shadow-[0_20px_60px_rgba(74,48,41,0.06)]"
     >
       <input type="hidden" name="items" value={serializedItems} />
 
       <div className="grid gap-6 p-6 md:grid-cols-2 md:p-8">
         <label className={labelClass}>
           Поставщик
-          <select
+          <AdminSelect
+            className="mt-2"
             name="supplier_id"
-            required
             defaultValue={values?.supplierId ?? ""}
-            className={inputClass}
-          >
-            <option value="">Выберите поставщика</option>
-            {suppliers.map((supplier) => (
-              <option
-                key={supplier.id}
-                value={supplier.id}
-                disabled={!supplier.isActive}
-              >
-                {supplier.name}{supplier.isActive ? "" : " — отключён"}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Выбрать поставщика"
+            placeholder="Выберите поставщика"
+            options={suppliers.map((supplier) => ({
+              value: supplier.id,
+              label: `${supplier.name}${supplier.isActive ? "" : " — отключён"}`,
+              disabled: !supplier.isActive,
+            }))}
+          />
         </label>
 
         <label className={labelClass}>
@@ -226,25 +222,20 @@ export function AdminPurchaseForm({
               >
                 <label className={labelClass}>
                   Цветок {index + 1}
-                  <select
-                    required
+                  <AdminSelect
+                    className="mt-2"
+                    name={`flower_${row.key}`}
                     value={row.flowerId}
-                    onChange={(event) => selectFlower(row, event.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="">Выберите цветок</option>
-                    {flowers.map((flower) => (
-                      <option
-                        key={flower.id}
-                        value={flower.id}
-                        disabled={
-                          !flower.isActive || selectedElsewhere.has(flower.id)
-                        }
-                      >
-                        {flower.name}{flower.isActive ? "" : " — отключён"}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(flowerId) => selectFlower(row, flowerId)}
+                    ariaLabel={`Выбрать цветок ${index + 1}`}
+                    placeholder="Выберите цветок"
+                    options={flowers.map((flower) => ({
+                      value: flower.id,
+                      label: `${flower.name}${flower.isActive ? "" : " — отключён"}`,
+                      disabled:
+                        !flower.isActive || selectedElsewhere.has(flower.id),
+                    }))}
+                  />
                   <span className="mt-1.5 block text-xs font-normal normal-case tracking-normal text-[#99817a]">
                     Остаток: {selectedFlower?.stockQuantity ?? "—"}
                   </span>

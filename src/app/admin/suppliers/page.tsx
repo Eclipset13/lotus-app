@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
+import { AdminSelect } from "@/components/admin-filter-select";
 import { AdminSupplierStatusForm } from "@/components/admin-supplier-status-form";
 import { BrandLogo } from "@/components/brand-logo";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
@@ -169,15 +170,17 @@ export default async function AdminSuppliersPage({
             </label>
             <label className="text-xs font-bold uppercase tracking-[0.16em] text-[#99817a]">
               Статус
-              <select
+              <AdminSelect
+                className="mt-2"
                 name="status"
                 defaultValue={status}
-                className="mt-2 h-12 w-full rounded-2xl border border-[#ead8d1] bg-[#fffaf8] px-4 text-sm font-normal normal-case tracking-normal outline-none focus:border-[#d89b91] focus:ring-4 focus:ring-[#f4cbc4]/25"
-              >
-                <option value="all">Все</option>
-                <option value="active">Активные</option>
-                <option value="inactive">Неактивные</option>
-              </select>
+                ariaLabel="Выбрать статус поставщика"
+                options={[
+                  { value: "all", label: "Все" },
+                  { value: "active", label: "Активные" },
+                  { value: "inactive", label: "Неактивные" },
+                ]}
+              />
             </label>
             <button
               type="submit"
