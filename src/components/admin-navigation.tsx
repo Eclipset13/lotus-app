@@ -22,13 +22,19 @@ const navigation = [
     icon: "🏢",
     exact: false,
   },
+  {
+    href: "/admin/purchases",
+    label: "Поступления",
+    icon: "🚚",
+    exact: false,
+  },
 ];
 
 export function AdminNavigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="mt-8 flex w-fit gap-1 rounded-[20px] border border-[#f0dfd9] bg-white p-1.5 shadow-[0_10px_35px_rgba(74,48,41,0.05)]">
+    <nav className="mt-8 flex max-w-full w-fit gap-1 overflow-x-auto rounded-[20px] border border-[#f0dfd9] bg-white p-1.5 shadow-[0_10px_35px_rgba(74,48,41,0.05)]">
       {navigation.map((item) => {
         const isActive = item.exact
           ? pathname === item.href
@@ -38,7 +44,7 @@ export function AdminNavigation() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition ${
+            className={`flex shrink-0 items-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition ${
               isActive
                 ? "bg-[#342622] text-white shadow-sm"
                 : "text-[#806e68] hover:bg-[#fff4f1] hover:text-[#4d3934]"

@@ -52,3 +52,22 @@ ORDER BY conname;
 `F5`. Миграция идемпотентно добавляет только `tax_id`, `bank_details` и
 `contract_details`; существующие данные, ограничения и внешние ключи не
 изменяются.
+
+## Закупки и поступления цветов
+
+Файл миграции: `20260907_purchases.sql`.
+
+Перед запуском убедитесь, что подключение открыто к базе `lotus_db` под
+владельцем таблиц `postgres`. В pgAdmin выберите **Tools → Query Tool**,
+откройте `src/db/migrations/20260907_purchases.sql` и выполните весь файл
+клавишей `F5`.
+
+Эквивалентная команда из PowerShell при доступном `psql`:
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260907_purchases.sql"
+```
+
+Миграция создаёт документы `purchases`, их позиции `purchase_items` и связь
+`stock_movements.purchase_id`. Повторный запуск безопасен. Существующие типы
+складских движений не изменяются; текущая база уже допускает тип `purchase`.
