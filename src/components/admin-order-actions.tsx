@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 type AdminOrderActionsProps = {
     orderId: string;
@@ -17,7 +17,7 @@ const statuses = [
     },
     {
         value: "preparing",
-        label: "Собирается",
+        label: "Начать сборку",
         className:
             "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100",
     },
@@ -47,23 +47,41 @@ const statuses = [
     },
 ];
 
+const allowedTransitions: Record<string, string[]> = {
+    new: ["confirmed", "cancelled"],
+    confirmed: ["preparing", "cancelled"],
+    preparing: ["ready", "cancelled"],
+    ready: ["delivering", "completed", "cancelled"],
+    delivering: ["completed", "cancelled"],
+    completed: [],
+    cancelled: [],
+};
+
 export function AdminOrderActions({
     orderId,
     currentStatus,
 }: AdminOrderActionsProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
+    const submissionLocked = useRef(false);
 
     async function changeStatus(status: string) {
-        if (
-            status === "cancelled" &&
-            !window.confirm("Вы уверены, что хотите отменить заказ?")
-        ) {
-            return;
+        if (submissionLocked.current) return;
+        if (status === "cancelled") {
+            const stockWasConsumed = ["preparing", "ready", "delivering"].includes(currentStatus);
+            const confirmation = stockWasConsumed
+                ? "Цветы уже списаны и не будут возвращены автоматически. Отменить заказ?"
+                : "Вы уверены, что хотите отменить заказ?";
+            if (!window.confirm(confirmation)) return;
         }
 
         setError("");
+        setNotice("");
+        submissionLocked.current = true;
+        setIsSubmitting(true);
 
         try {
             const response = await fetch(
@@ -98,10 +116,22 @@ export function AdminOrderActions({
             const result = await response.json();
 
             if (!response.ok) {
+                const shortages = Array.isArray(result.shortages)
+                    ? result.shortages
+                        .map((item: { name?: string; missing?: number }) =>
+                            item.name && Number.isFinite(item.missing)
+                                ? `${item.name}: ${item.missing} шт.`
+                                : "",
+                        )
+                        .filter(Boolean)
+                        .join(", ")
+                    : "";
                 throw new Error(
-                    result.message || "Не удалось изменить статус"
+                    `${result.message || "Не удалось изменить статус"}${shortages ? `. Не хватает: ${shortages}` : ""}`
                 );
             }
+
+            if (result.warning) setNotice(String(result.warning));
 
             startTransition(() => {
                 router.refresh();
@@ -112,6 +142,9 @@ export function AdminOrderActions({
                     ? statusError.message
                     : "Не удалось изменить статус"
             );
+        } finally {
+            submissionLocked.current = false;
+            setIsSubmitting(false);
         }
     }
 
@@ -122,35 +155,45 @@ export function AdminOrderActions({
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
-                {statuses.map((status) => {
-                    const isCurrent = currentStatus === status.value;
-
+                {statuses
+                  .filter((status) =>
+                    (allowedTransitions[currentStatus] ?? []).includes(status.value),
+                  )
+                  .map((status) => {
                     return (
                         <button
                             key={status.value}
                             type="button"
-                            disabled={isPending || isCurrent}
+                            disabled={isPending || isSubmitting}
                             onClick={() => changeStatus(status.value)}
-                            className={`rounded-full border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed ${isCurrent
-                                    ? "border-[#342622] bg-[#342622] text-white"
-                                    : status.className
-                                } ${isPending ? "opacity-60" : ""}`}
+                            className={`rounded-full border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed ${status.className} ${isPending || isSubmitting ? "opacity-60" : ""}`}
                         >
-                            {isCurrent ? `✓ ${status.label}` : status.label}
+                            {status.label}
                         </button>
                     );
                 })}
+                {(allowedTransitions[currentStatus] ?? []).length === 0 && (
+                    <p className="text-sm text-[#806e68]">
+                        Для этого статуса дальнейшие переходы недоступны.
+                    </p>
+                )}
             </div>
 
-            {isPending && (
+            {(isPending || isSubmitting) && (
                 <p className="mt-3 text-sm text-[#806e68]">
                     Обновляем статус…
                 </p>
             )}
 
             {error && (
-                <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+                <p role="alert" className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
                     {error}
+                </p>
+            )}
+
+            {notice && (
+                <p role="status" className="mt-3 rounded-xl bg-orange-50 px-4 py-3 text-sm text-orange-800">
+                    {notice}
                 </p>
             )}
         </div>

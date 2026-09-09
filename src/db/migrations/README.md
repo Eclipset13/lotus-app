@@ -106,3 +106,22 @@ FROM pg_constraint
 WHERE conrelid = 'public.flowers'::regclass
   AND conname = 'flowers_constructor_kind_check';
 ```
+
+## Резервирование цветов по заказам
+
+Файл миграции: `20260908_order_stock_reservations.sql`.
+
+В pgAdmin откройте базу `lotus_db` под владельцем таблиц (`postgres`), затем
+**Tools → Query Tool**, откройте файл
+`D:\Projects\lotus-app\src\db\migrations\20260908_order_stock_reservations.sql`
+и выполните его клавишей `F5`.
+
+Эквивалентная команда PowerShell при доступном `psql`:
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260908_order_stock_reservations.sql"
+```
+
+Миграция создаёт таблицу `order_stock_reservations`, добавляет связь
+`stock_movements.reservation_id` и уникальную защиту от повторного списания
+одного резерва. Существующий триггер складских остатков не изменяется.

@@ -99,8 +99,10 @@ function formatDate(value: Date) {
 
 function OrderRequirementsCard({
   result,
+  orderStatus,
 }: {
   result: OrderFlowerRequirementsResult;
+  orderStatus: string;
 }) {
   const status = !result.canCalculate
     ? {
@@ -108,7 +110,40 @@ function OrderRequirementsCard({
         message: "Нельзя рассчитать состав заказа",
         className: "border-orange-200 bg-orange-50 text-orange-900",
       }
-    : result.hasShortage
+    : result.reservationState === "active"
+      ? {
+          title: "Зарезервировано",
+          message: `Зарезервировано для заказа: ${result.reservedForOrder}`,
+          className: "border-blue-200 bg-blue-50 text-blue-900",
+        }
+      : result.reservationState === "consumed"
+        ? {
+            title: "Списано",
+            message: orderStatus === "cancelled"
+              ? "Цветы были списаны"
+              : `Списано со склада: ${result.requirements.reduce((total, item) => total + item.requiredQuantity, 0)}`,
+            className: "border-[#e7c8bc] bg-[#fff3ed] text-[#78483d]",
+          }
+        : result.reservationState === "released"
+          ? {
+              title: "Резерв освобождён",
+              message: "Физический остаток не изменялся",
+              className: "border-orange-200 bg-orange-50 text-orange-900",
+            }
+          : result.reservationState === "none" &&
+              ["preparing", "ready", "delivering", "completed"].includes(orderStatus)
+            ? {
+                title: "Складской учёт отсутствует",
+                message: "Это старый заказ: ретроспективное списание не выполнялось",
+                className: "border-orange-200 bg-orange-50 text-orange-900",
+              }
+            : result.reservationState === "none" && orderStatus === "cancelled"
+              ? {
+                  title: "Резерва не было",
+                  message: "Физический остаток не изменялся",
+                  className: "border-[#ead8d1] bg-[#fffaf8] text-[#806e68]",
+                }
+              : result.hasShortage
       ? {
           title: "Не хватает цветов",
           message: result.requirements
@@ -132,7 +167,7 @@ function OrderRequirementsCard({
         </span>
       </div>
       <p className="mt-2 text-sm font-medium">
-        {result.hasShortage && result.canCalculate ? "Не хватает: " : ""}
+        {result.hasShortage && result.canCalculate && result.reservationState === "none" ? "Не хватает: " : ""}
         {status.message}
       </p>
 
@@ -142,9 +177,15 @@ function OrderRequirementsCard({
             <div key={item.flowerId} className="rounded-2xl border border-current/10 bg-white/75 px-4 py-3 text-sm">
               <p className="font-semibold">{item.name}</p>
               <p className="mt-1 opacity-80">
-                Требуется: {item.requiredQuantity} · На складе: {item.stockQuantity}
+                {result.reservationState === "active"
+                  ? `Зарезервировано для заказа: ${item.reservedQuantity}`
+                  : result.reservationState === "consumed"
+                    ? `Списано со склада: ${item.requiredQuantity}`
+                    : result.reservationState === "released"
+                      ? `Резерв освобождён · Физический остаток: ${item.stockQuantity}`
+                      : `Требуется: ${item.requiredQuantity} · Доступно: ${item.availableQuantity}`}
               </p>
-              {item.missingQuantity > 0 && (
+              {item.missingQuantity > 0 && result.reservationState === "none" && (
                 <p className="mt-1 font-semibold text-red-700">
                   Дефицит: {item.missingQuantity}
                 </p>
@@ -358,7 +399,7 @@ export default async function AdminPage({
     );
   } catch (error) {
     console.error("Admin order flower requirements failed:", error);
-    requirementsByOrder = new Map(
+    requirementsByOrder = new Map<string, OrderFlowerRequirementsResult>(
       orders.map((order) => [
         order.id,
         {
@@ -366,6 +407,8 @@ export default async function AdminPage({
           errors: ["Настройка складского состава временно недоступна"],
           canCalculate: false,
           hasShortage: false,
+          reservationState: "none",
+          reservedForOrder: 0,
         },
       ]),
     );
@@ -836,11 +879,14 @@ export default async function AdminPage({
                 </div>
 
                 <OrderRequirementsCard
+                  orderStatus={order.status}
                   result={requirementsByOrder.get(order.id) ?? {
                     requirements: [],
                     errors: ["Нельзя рассчитать состав заказа"],
                     canCalculate: false,
                     hasShortage: false,
+                    reservationState: "none",
+                    reservedForOrder: 0,
                   }}
                 />
 

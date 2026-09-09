@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
 type InventoryStats = {
   active_types: number;
   total_stock: number;
+  reserved_stock: number;
+  available_stock: number;
   out_of_stock: number;
   low_stock: number;
   purchase_value: string;
@@ -31,6 +33,8 @@ type InventoryFlower = {
   is_active: boolean;
   last_movement_at: Date | null;
   constructor_kind: string | null;
+  reserved_quantity: number;
+  available_quantity: number;
 };
 
 type Category = { id: string; name: string };
@@ -117,13 +121,13 @@ export default async function AdminInventoryPage({
     conditions.push(`f.name ILIKE $${values.length}`);
   }
   if (status === "available") {
-    conditions.push("f.stock_quantity > f.min_stock_quantity");
+    conditions.push("GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) > f.min_stock_quantity");
   } else if (status === "low") {
     conditions.push(
-      "f.stock_quantity > 0 AND f.stock_quantity <= f.min_stock_quantity",
+      "GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) > 0 AND GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) <= f.min_stock_quantity",
     );
   } else if (status === "out") {
-    conditions.push("f.stock_quantity = 0");
+    conditions.push("GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) = 0");
   }
   if (activity !== "all") {
     values.push(activity === "active");
@@ -139,30 +143,44 @@ export default async function AdminInventoryPage({
     : "";
   const orderBy =
     sort === "stock"
-      ? "f.stock_quantity ASC, f.name ASC"
+      ? "GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) ASC, f.name ASC"
       : sort === "movement"
         ? "lm.last_movement_at DESC NULLS LAST, f.name ASC"
         : "f.name ASC";
 
   const [statsResult, flowersResult, categoriesResult] = await Promise.all([
     db.query<InventoryStats>(`
+      WITH active_reservations AS (
+        SELECT flower_id, sum(quantity)::int AS reserved_quantity
+        FROM public.order_stock_reservations
+        WHERE status = 'active'
+        GROUP BY flower_id
+      )
       SELECT count(*)::int AS active_types,
-             COALESCE(sum(stock_quantity), 0)::int AS total_stock,
-             count(*) FILTER (WHERE stock_quantity = 0)::int AS out_of_stock,
+             COALESCE(sum(f.stock_quantity), 0)::int AS total_stock,
+             COALESCE(sum(COALESCE(ar.reserved_quantity, 0)), 0)::int AS reserved_stock,
+             COALESCE(sum(GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0)), 0)::int AS available_stock,
+             count(*) FILTER (WHERE GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) = 0)::int AS out_of_stock,
              count(*) FILTER (
-               WHERE stock_quantity > 0
-                 AND stock_quantity <= min_stock_quantity
+               WHERE GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) > 0
+                 AND GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0) <= f.min_stock_quantity
              )::int AS low_stock,
-             COALESCE(sum(stock_quantity * purchase_price), 0)::text AS purchase_value,
-             COALESCE(sum(stock_quantity * sale_price), 0)::text AS sale_value
-      FROM public.flowers
-      WHERE is_active = TRUE
+             COALESCE(sum(f.stock_quantity * f.purchase_price), 0)::text AS purchase_value,
+             COALESCE(sum(f.stock_quantity * f.sale_price), 0)::text AS sale_value
+      FROM public.flowers f
+      LEFT JOIN active_reservations ar ON ar.flower_id = f.id
+      WHERE f.is_active = TRUE
     `),
     db.query<InventoryFlower>(
       `
         WITH last_movements AS (
           SELECT flower_id, max(created_at) AS last_movement_at
           FROM public.stock_movements
+          GROUP BY flower_id
+        ), active_reservations AS (
+          SELECT flower_id, sum(quantity)::int AS reserved_quantity
+          FROM public.order_stock_reservations
+          WHERE status = 'active'
           GROUP BY flower_id
         )
         SELECT f.id::text,
@@ -176,10 +194,13 @@ export default async function AdminInventoryPage({
                f.image_url,
                f.is_active,
                f.constructor_kind,
+               COALESCE(ar.reserved_quantity, 0)::int AS reserved_quantity,
+               GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0)::int AS available_quantity,
                lm.last_movement_at
         FROM public.flowers f
         LEFT JOIN public.categories c ON c.id = f.category_id
         LEFT JOIN last_movements lm ON lm.flower_id = f.id
+        LEFT JOIN active_reservations ar ON ar.flower_id = f.id
         ${whereClause}
         ORDER BY ${orderBy}
       `,
@@ -195,6 +216,8 @@ export default async function AdminInventoryPage({
   const stats = statsResult.rows[0] ?? {
     active_types: 0,
     total_stock: 0,
+    reserved_stock: 0,
+    available_stock: 0,
     out_of_stock: 0,
     low_stock: 0,
     purchase_value: "0",
@@ -217,10 +240,12 @@ export default async function AdminInventoryPage({
           <AdminNavigation />
         </header>
 
-        <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
             ["Активных видов", stats.active_types, ""],
             ["Цветов на складе", stats.total_stock, ""],
+            ["Зарезервировано", stats.reserved_stock, "text-blue-700"],
+            ["Доступно", stats.available_stock, "text-green-700"],
             ["Закончились", stats.out_of_stock, "text-red-700"],
             ["Ниже минимума", stats.low_stock, "text-orange-700"],
             ["Закупочная стоимость", `${money(stats.purchase_value)} ₽`, ""],
@@ -305,12 +330,14 @@ export default async function AdminInventoryPage({
         ) : (
           <section className="mt-8 overflow-hidden rounded-[28px] border border-[#f0dfd9] bg-white">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] text-left text-sm">
+              <table className="w-full min-w-[1380px] text-left text-sm">
                 <thead className="bg-[#fff4f1] text-xs uppercase tracking-[0.12em] text-[#99817a]">
                   <tr>
                     <th className="px-5 py-4">Цветок</th>
                     <th className="px-5 py-4">Категория</th>
-                    <th className="px-5 py-4">Остаток</th>
+                    <th className="px-5 py-4">Физический остаток</th>
+                    <th className="px-5 py-4">Зарезервировано</th>
+                    <th className="px-5 py-4">Доступно</th>
                     <th className="px-5 py-4">Минимум</th>
                     <th className="px-5 py-4">Закупка</th>
                     <th className="px-5 py-4">Продажа</th>
@@ -323,7 +350,7 @@ export default async function AdminInventoryPage({
                 <tbody className="divide-y divide-[#f3e6e1]">
                   {flowers.map((flower) => {
                     const stockStatus = getStockStatus(
-                      flower.stock_quantity,
+                      flower.available_quantity,
                       flower.min_stock_quantity,
                     );
                     return (
@@ -352,6 +379,12 @@ export default async function AdminInventoryPage({
                         <td className="px-5 py-4">{flower.category_name ?? "Без категории"}</td>
                         <td className="px-5 py-4 text-lg font-bold">
                           {flower.stock_quantity} <span className="text-xs font-normal text-[#99817a]">{flower.unit}</span>
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-blue-700">
+                          {flower.reserved_quantity} <span className="text-xs font-normal text-[#99817a]">{flower.unit}</span>
+                        </td>
+                        <td className="px-5 py-4 text-lg font-bold text-green-700">
+                          {flower.available_quantity} <span className="text-xs font-normal text-[#99817a]">{flower.unit}</span>
                         </td>
                         <td className="px-5 py-4">{flower.min_stock_quantity}</td>
                         <td className="px-5 py-4">{money(flower.purchase_price)} ₽</td>

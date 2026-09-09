@@ -24,6 +24,8 @@ type Flower = {
   image_url: string | null;
   is_active: boolean;
   constructor_kind: string | null;
+  reserved_quantity: number;
+  available_quantity: number;
 };
 
 type StockMovement = {
@@ -40,6 +42,14 @@ type StockMovement = {
 };
 
 type MovementCount = { total: number };
+
+type ActiveReservation = {
+  id: string;
+  order_id: string;
+  order_number: string;
+  quantity: number;
+  reserved_at: Date;
+};
 
 function isDatabaseId(value: string) {
   return (
@@ -125,7 +135,7 @@ export default async function InventoryFlowerPage({
   }
   const requestedPage = parsePage((await searchParams).page);
 
-  const [flowerResult, countResult] = await Promise.all([
+  const [flowerResult, countResult, reservationsResult] = await Promise.all([
     db.query<Flower>(
       `
         SELECT f.id::text,
@@ -138,9 +148,17 @@ export default async function InventoryFlowerPage({
                f.min_stock_quantity,
                f.image_url,
                f.is_active,
-               f.constructor_kind
+               f.constructor_kind,
+               COALESCE(active_reservations.reserved_quantity, 0)::int AS reserved_quantity,
+               GREATEST(f.stock_quantity - COALESCE(active_reservations.reserved_quantity, 0), 0)::int AS available_quantity
         FROM public.flowers f
         LEFT JOIN public.categories c ON c.id = f.category_id
+        LEFT JOIN LATERAL (
+          SELECT sum(quantity)::int AS reserved_quantity
+          FROM public.order_stock_reservations
+          WHERE flower_id = f.id
+            AND status = 'active'
+        ) active_reservations ON TRUE
         WHERE f.id = $1::bigint
         LIMIT 1
       `,
@@ -151,6 +169,21 @@ export default async function InventoryFlowerPage({
         SELECT count(*)::int AS total
         FROM public.stock_movements
         WHERE flower_id = $1::bigint
+      `,
+      [flowerId],
+    ),
+    db.query<ActiveReservation>(
+      `
+        SELECT r.id::text,
+               r.order_id::text,
+               o.order_number,
+               r.quantity,
+               r.reserved_at
+        FROM public.order_stock_reservations r
+        JOIN public.orders o ON o.id = r.order_id
+        WHERE r.flower_id = $1::bigint
+          AND r.status = 'active'
+        ORDER BY r.reserved_at, r.id
       `,
       [flowerId],
     ),
@@ -187,7 +220,7 @@ export default async function InventoryFlowerPage({
   );
 
   const status = getStockStatus(
-    flower.stock_quantity,
+    flower.available_quantity,
     flower.min_stock_quantity,
   );
 
@@ -240,6 +273,14 @@ export default async function InventoryFlowerPage({
                 <dd className="mt-1.5 text-xl font-bold">{flower.stock_quantity} {flower.unit}</dd>
               </div>
               <div>
+                <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Зарезервировано</dt>
+                <dd className="mt-1.5 text-xl font-bold text-blue-700">{flower.reserved_quantity} {flower.unit}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Доступно</dt>
+                <dd className="mt-1.5 text-xl font-bold text-green-700">{flower.available_quantity} {flower.unit}</dd>
+              </div>
+              <div>
                 <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Минимум</dt>
                 <dd className="mt-1.5">{flower.min_stock_quantity} {flower.unit}</dd>
               </div>
@@ -264,7 +305,33 @@ export default async function InventoryFlowerPage({
           stockQuantity={flower.stock_quantity}
         minimumStock={flower.min_stock_quantity}
         constructorKind={flower.constructor_kind}
-      />
+        />
+
+        <section className="mt-6 overflow-hidden rounded-[28px] border border-[#f0dfd9] bg-white">
+          <div className="border-b border-[#f3e6e1] px-6 py-5">
+            <h2 className="font-serif text-2xl">Активные резервы</h2>
+            <p className="mt-1 text-sm text-[#806e68]">
+              Эти цветы уже обещаны подтверждённым заказам и не входят в доступный остаток.
+            </p>
+          </div>
+          {reservationsResult.rows.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-[#806e68]">Активных резервов нет.</p>
+          ) : (
+            <div className="divide-y divide-[#f3e6e1]">
+              {reservationsResult.rows.map((reservation) => (
+                <article key={reservation.id} className="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+                  <div>
+                    <Link href={`/admin?q=${encodeURIComponent(reservation.order_number)}`} className="font-semibold text-[#9a5f56] underline decoration-[#dcb4aa] underline-offset-2">
+                      Заказ {reservation.order_number}
+                    </Link>
+                    <p className="mt-1 text-xs text-[#806e68]">{formatDateTime(reservation.reserved_at)}</p>
+                  </div>
+                  <strong className="text-blue-700">{reservation.quantity} {flower.unit}</strong>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="mt-6 overflow-hidden rounded-[28px] border border-[#f0dfd9] bg-white">
           <div className="border-b border-[#f3e6e1] px-6 py-5">

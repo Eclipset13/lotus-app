@@ -5,12 +5,15 @@ import {
   type FlowerKind,
 } from "@/lib/bouquet";
 import { db } from "@/lib/db";
+import type { PoolClient } from "pg";
 
 export type OrderFlowerRequirement = {
   flowerId: string;
   name: string;
   requiredQuantity: number;
   stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
   isAvailable: boolean;
   missingQuantity: number;
 };
@@ -20,6 +23,8 @@ export type OrderFlowerRequirementsResult = {
   errors: string[];
   canCalculate: boolean;
   hasShortage: boolean;
+  reservationState: "none" | "active" | "consumed" | "released";
+  reservedForOrder: number;
 };
 
 type OrderItemRow = {
@@ -45,6 +50,13 @@ type ConstructorFlowerRow = {
   flower_name: string;
   stock_quantity: number;
   constructor_kind: FlowerKind;
+};
+
+type ReservationRow = {
+  order_id: string;
+  flower_id: string;
+  quantity: number;
+  status: "active" | "consumed" | "released";
 };
 
 type StockFlower = {
@@ -88,11 +100,13 @@ function addRequirement(
 
 export async function getOrderFlowerRequirements(
   orderIds: string[],
+  client?: PoolClient,
 ): Promise<Map<string, OrderFlowerRequirementsResult>> {
   const uniqueOrderIds = [...new Set(orderIds)];
   if (uniqueOrderIds.length === 0) return new Map();
 
-  const orderItemsResult = await db.query<OrderItemRow>(
+  const queryable = client ?? db;
+  const orderItemsResult = await queryable.query<OrderItemRow>(
     `
       SELECT id::text,
              order_id::text,
@@ -119,9 +133,8 @@ export async function getOrderFlowerRequirements(
     (item) => item.item_type === "custom_bouquet",
   );
 
-  const [bouquetItemsResult, constructorFlowersResult] = await Promise.all([
-    bouquetIds.length > 0
-      ? db.query<BouquetItemRow>(
+  const bouquetItemsResult = bouquetIds.length > 0
+    ? await queryable.query<BouquetItemRow>(
           `
             SELECT bi.bouquet_id::text,
                    bi.flower_id::text,
@@ -135,9 +148,9 @@ export async function getOrderFlowerRequirements(
           `,
           [bouquetIds],
         )
-      : Promise.resolve({ rows: [] as BouquetItemRow[] }),
-    hasCustomBouquets
-      ? db.query<ConstructorFlowerRow>(`
+    : { rows: [] as BouquetItemRow[] };
+  const constructorFlowersResult = hasCustomBouquets
+    ? await queryable.query<ConstructorFlowerRow>(`
           SELECT id::text AS flower_id,
                  name AS flower_name,
                  stock_quantity,
@@ -145,8 +158,16 @@ export async function getOrderFlowerRequirements(
           FROM public.flowers
           WHERE constructor_kind IS NOT NULL
         `)
-      : Promise.resolve({ rows: [] as ConstructorFlowerRow[] }),
-  ]);
+    : { rows: [] as ConstructorFlowerRow[] };
+  const reservationsResult = await queryable.query<ReservationRow>(
+    `
+      SELECT order_id::text, flower_id::text, quantity, status
+      FROM public.order_stock_reservations
+      WHERE status = 'active'
+         OR order_id = ANY($1::uuid[])
+    `,
+    [uniqueOrderIds],
+  );
 
   const compositionByBouquet = new Map<string, BouquetItemRow[]>();
   for (const item of bouquetItemsResult.rows) {
@@ -161,6 +182,22 @@ export async function getOrderFlowerRequirements(
       name: flower.flower_name,
       stockQuantity: Number(flower.stock_quantity),
     });
+  }
+
+  const activeReservedByFlower = new Map<string, number>();
+  const reservationsByOrder = new Map<string, ReservationRow[]>();
+  for (const reservation of reservationsResult.rows) {
+    const orderReservations =
+      reservationsByOrder.get(reservation.order_id) ?? [];
+    orderReservations.push(reservation);
+    reservationsByOrder.set(reservation.order_id, orderReservations);
+    if (reservation.status === "active") {
+      activeReservedByFlower.set(
+        reservation.flower_id,
+        (activeReservedByFlower.get(reservation.flower_id) ?? 0) +
+          Number(reservation.quantity),
+      );
+    }
   }
 
   const mutableByOrder = new Map<string, MutableOrderResult>();
@@ -251,18 +288,38 @@ export async function getOrderFlowerRequirements(
 
   return new Map(
     [...mutableByOrder].map(([orderId, result]) => {
+      const orderReservations = reservationsByOrder.get(orderId) ?? [];
+      const activeForOrder = new Map<string, number>();
+      for (const reservation of orderReservations) {
+        if (reservation.status === "active") {
+          activeForOrder.set(
+            reservation.flower_id,
+            (activeForOrder.get(reservation.flower_id) ?? 0) +
+              Number(reservation.quantity),
+          );
+        }
+      }
       const requirements = [...result.quantities].map(
         ([flowerId, requiredQuantity]): OrderFlowerRequirement => {
           const flower = result.flowers.get(flowerId)!;
+          const reservedQuantity = activeForOrder.get(flowerId) ?? 0;
+          const availableQuantity = Math.max(
+            0,
+            flower.stockQuantity -
+              (activeReservedByFlower.get(flowerId) ?? 0) +
+              reservedQuantity,
+          );
           const missingQuantity = Math.max(
             0,
-            requiredQuantity - flower.stockQuantity,
+            requiredQuantity - availableQuantity,
           );
           return {
             flowerId,
             name: flower.name,
             requiredQuantity,
             stockQuantity: flower.stockQuantity,
+            reservedQuantity,
+            availableQuantity,
             isAvailable: missingQuantity === 0,
             missingQuantity,
           };
@@ -271,6 +328,16 @@ export async function getOrderFlowerRequirements(
       requirements.sort((first, second) =>
         first.name.localeCompare(second.name, "ru"),
       );
+      const reservationStatuses = new Set(
+        orderReservations.map((reservation) => reservation.status),
+      );
+      const reservationState = reservationStatuses.has("active")
+        ? "active"
+        : reservationStatuses.has("consumed")
+          ? "consumed"
+          : reservationStatuses.has("released")
+            ? "released"
+            : "none";
       return [
         orderId,
         {
@@ -278,6 +345,11 @@ export async function getOrderFlowerRequirements(
           errors: [...result.errors],
           canCalculate: result.errors.size === 0,
           hasShortage: requirements.some((item) => !item.isAvailable),
+          reservationState,
+          reservedForOrder: [...activeForOrder.values()].reduce(
+            (total, quantity) => total + quantity,
+            0,
+          ),
         },
       ];
     }),
