@@ -81,6 +81,7 @@ export function AdminInventoryControls({
             adjustmentSubmissionLocked.current = true;
           }}
         >
+          <input type="hidden" name="expected_stock" value={displayedStock} />
           <label className="text-xs font-bold uppercase tracking-[0.14em] text-[#99817a]">
             Операция
             <AdminSelect

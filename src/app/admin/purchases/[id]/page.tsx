@@ -270,7 +270,7 @@ export default async function PurchasePage({
             </div>
             <div>
               <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Итого</dt>
-              <dd className="mt-2 text-xl font-bold">{money(total)} ₽</dd>
+              <dd className="mt-2 text-xl font-bold">{money(total)} сом</dd>
             </div>
           </dl>
           {purchase.note && (
@@ -297,9 +297,9 @@ export default async function PurchasePage({
                   <tr key={item.flower_id}>
                     <td className="px-6 py-4 font-semibold">{item.flower_name}</td>
                     <td className="px-6 py-4">{item.quantity}</td>
-                    <td className="px-6 py-4">{money(Number(item.unit_cost))} ₽</td>
+                    <td className="px-6 py-4">{money(Number(item.unit_cost))} сом</td>
                     <td className="px-6 py-4 font-semibold">
-                      {money(item.quantity * Number(item.unit_cost))} ₽
+                      {money(item.quantity * Number(item.unit_cost))} сом
                     </td>
                   </tr>
                 ))}

@@ -247,7 +247,7 @@ export default async function AdminPurchasesPage({
                       </td>
                       <td className="px-5 py-4">{purchase.item_count}</td>
                       <td className="px-5 py-4 font-semibold">
-                        {money(purchase.total_amount)} ₽
+                        {money(purchase.total_amount)} сом
                       </td>
                       <td className="px-5 py-4 text-right">
                         <Link

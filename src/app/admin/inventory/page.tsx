@@ -248,8 +248,8 @@ export default async function AdminInventoryPage({
             ["Доступно", stats.available_stock, "text-green-700"],
             ["Закончились", stats.out_of_stock, "text-red-700"],
             ["Ниже минимума", stats.low_stock, "text-orange-700"],
-            ["Закупочная стоимость", `${money(stats.purchase_value)} ₽`, ""],
-            ["Потенциальная стоимость", `${money(stats.sale_value)} ₽`, ""],
+            ["Закупочная стоимость", `${money(stats.purchase_value)} сом`, ""],
+            ["Потенциальная стоимость", `${money(stats.sale_value)} сом`, ""],
           ].map(([label, value, color]) => (
             <article
               key={String(label)}
@@ -387,10 +387,10 @@ export default async function AdminInventoryPage({
                           {flower.available_quantity} <span className="text-xs font-normal text-[#99817a]">{flower.unit}</span>
                         </td>
                         <td className="px-5 py-4">{flower.min_stock_quantity}</td>
-                        <td className="px-5 py-4">{money(flower.purchase_price)} ₽</td>
-                        <td className="px-5 py-4">{money(flower.sale_price)} ₽</td>
+                        <td className="px-5 py-4">{money(flower.purchase_price)} сом</td>
+                        <td className="px-5 py-4">{money(flower.sale_price)} сом</td>
                         <td className="px-5 py-4 font-semibold">
-                          {money(flower.stock_quantity * Number(flower.purchase_price))} ₽
+                          {money(flower.stock_quantity * Number(flower.purchase_price))} сом
                         </td>
                         <td className="px-5 py-4">
                           <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${stockStatusClasses[stockStatus]}`}>

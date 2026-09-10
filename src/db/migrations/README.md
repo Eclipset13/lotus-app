@@ -125,3 +125,17 @@ psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\2026090
 Миграция создаёт таблицу `order_stock_reservations`, добавляет связь
 `stock_movements.reservation_id` и уникальную защиту от повторного списания
 одного резерва. Существующий триггер складских остатков не изменяется.
+
+## Права прикладной роли на складские документы
+
+Файл миграции: `20260909_app_privileges.sql`.
+
+После миграций поступлений и резервов выполните этот файл в базе `lotus_db`
+под владельцем объектов (`postgres`). Он выдаёт роли `lotus_app` права на
+таблицы `purchases`, `purchase_items`, `order_stock_reservations` и их
+последовательности. Если роль отсутствует, миграция завершится без ошибки и
+выведет уведомление.
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260909_app_privileges.sql"
+```

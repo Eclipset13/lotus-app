@@ -1,20 +1,22 @@
 import { db } from "@/lib/db";
+import { isAdminAuthenticated } from "@/lib/admin-auth";
+
+export const runtime = "nodejs";
 
 export async function GET() {
+  if (!(await isAdminAuthenticated())) {
+    return Response.json(
+      { success: false, message: "Требуется вход в админ-панель" },
+      { status: 401 },
+    );
+  }
+
   try {
-    const result = await db.query(`
-      SELECT
-        current_database() AS database,
-        current_user AS user_name,
-        (SELECT COUNT(*) FROM flowers) AS flowers_count,
-        (SELECT COUNT(*) FROM bouquets) AS bouquets_count,
-        (SELECT COUNT(*) FROM orders) AS orders_count
-    `);
+    await db.query("SELECT 1");
 
     return Response.json({
       success: true,
       message: "Lotus успешно подключён к PostgreSQL",
-      data: result.rows[0],
     });
   } catch (error) {
     console.error("Ошибка PostgreSQL:", error);
@@ -24,7 +26,7 @@ export async function GET() {
         success: false,
         message: "Не удалось подключиться к PostgreSQL",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

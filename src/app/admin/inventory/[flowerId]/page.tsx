@@ -286,15 +286,15 @@ export default async function InventoryFlowerPage({
               </div>
               <div>
                 <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Цена закупки</dt>
-                <dd className="mt-1.5">{money(flower.purchase_price)} ₽</dd>
+                <dd className="mt-1.5">{money(flower.purchase_price)} сом</dd>
               </div>
               <div>
                 <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Цена продажи</dt>
-                <dd className="mt-1.5">{money(flower.sale_price)} ₽</dd>
+                <dd className="mt-1.5">{money(flower.sale_price)} сом</dd>
               </div>
               <div>
                 <dt className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">Стоимость запаса</dt>
-                <dd className="mt-1.5 font-semibold">{money(flower.stock_quantity * Number(flower.purchase_price))} ₽</dd>
+                <dd className="mt-1.5 font-semibold">{money(flower.stock_quantity * Number(flower.purchase_price))} сом</dd>
               </div>
             </dl>
           </div>
@@ -384,7 +384,7 @@ export default async function InventoryFlowerPage({
                     <div>
                       <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#99817a]">Стоимость и примечание</p>
                       <p className="mt-1.5 text-sm">
-                        {movement.unit_cost ? `${money(movement.unit_cost)} ₽ за единицу` : "Стоимость не указана"}
+                        {movement.unit_cost ? `${money(movement.unit_cost)} сом за единицу` : "Стоимость не указана"}
                       </p>
                       {movement.note && <p className="mt-1 whitespace-pre-line text-sm text-[#806e68]">{movement.note}</p>}
                     </div>

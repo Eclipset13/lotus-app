@@ -16,6 +16,10 @@ type LockedFlower = {
   stock_quantity: number;
 };
 
+type ActiveReservationTotal = {
+  quantity: number;
+};
+
 class InventoryValidationError extends Error {}
 
 const MAX_BIGINT = "9223372036854775807";
@@ -68,6 +72,10 @@ export async function adjustInventory(
   const operation = String(formData.get("operation") ?? "");
   const quantity = parsePositiveInteger(formData.get("quantity"));
   const reason = String(formData.get("reason") ?? "").trim();
+  const expectedStockText = String(formData.get("expected_stock") ?? "").trim();
+  const expectedStock = /^\d+$/.test(expectedStockText)
+    ? Number(expectedStockText)
+    : null;
 
   if (operation !== "increase" && operation !== "decrease") {
     return { error: "Выберите операцию", message: "" };
@@ -80,6 +88,9 @@ export async function adjustInventory(
   }
   if (reason.length > MAX_REASON_LENGTH) {
     return { error: "Сократите причину корректировки", message: "" };
+  }
+  if (expectedStock === null || !Number.isSafeInteger(expectedStock)) {
+    return { error: "Обновите страницу и повторите корректировку", message: "" };
   }
 
   let client: PoolClient | null = null;
@@ -104,9 +115,30 @@ export async function adjustInventory(
     if (!Number.isInteger(currentStock) || currentStock < 0) {
       throw new InventoryValidationError("Текущий остаток содержит ошибку");
     }
-    if (operation === "decrease" && quantity > currentStock) {
+    if (currentStock !== expectedStock) {
       throw new InventoryValidationError(
-        `Нельзя уменьшить остаток ниже нуля. Сейчас доступно: ${currentStock}`,
+        "Остаток уже изменился. Обновите страницу и повторите корректировку.",
+      );
+    }
+    const reservationResult = await client.query<ActiveReservationTotal>(
+      `
+        SELECT COALESCE(sum(quantity), 0)::int AS quantity
+        FROM public.order_stock_reservations
+        WHERE flower_id = $1::bigint
+          AND status = 'active'
+      `,
+      [flowerId],
+    );
+    const activeReservedQuantity = Number(
+      reservationResult.rows[0]?.quantity ?? 0,
+    );
+    const availableQuantity = Math.max(
+      0,
+      currentStock - activeReservedQuantity,
+    );
+    if (operation === "decrease" && quantity > availableQuantity) {
+      throw new InventoryValidationError(
+        `Нельзя списать ${quantity} шт. Свободно только ${availableQuantity} шт., остальные зарезервированы заказами.`,
       );
     }
     if (operation === "increase" && currentStock + quantity > MAX_QUANTITY) {
@@ -123,7 +155,7 @@ export async function adjustInventory(
           quantity_change,
           note
         )
-        VALUES ($1::bigint, $2, $3, $4)
+        VALUES ($1::bigint, $2::varchar, $3::integer, $4::text)
       `,
       [flowerId, movementType, quantityChange, reason],
     );
@@ -132,11 +164,11 @@ export async function adjustInventory(
       `SELECT stock_quantity FROM public.flowers WHERE id = $1::bigint`,
       [flowerId],
     );
-    const expectedStock = currentStock + quantityChange;
+    const expectedUpdatedStock = currentStock + quantityChange;
     const updatedStock = Number(updatedResult.rows[0]?.stock_quantity);
-    if (updatedStock !== expectedStock) {
+    if (updatedStock !== expectedUpdatedStock) {
       throw new Error(
-        `Stock trigger result mismatch for flower ${flowerId}: expected ${expectedStock}, received ${updatedStock}`,
+        `Stock trigger result mismatch for flower ${flowerId}: expected ${expectedUpdatedStock}, received ${updatedStock}`,
       );
     }
 

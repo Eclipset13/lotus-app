@@ -276,7 +276,7 @@ export function AdminPurchaseForm({
                     Сумма
                   </span>
                   <strong className="mt-1 block text-sm">
-                    {money(Number.isFinite(lineTotal) ? lineTotal : 0)} ₽
+                    {money(Number.isFinite(lineTotal) ? lineTotal : 0)} сом
                   </strong>
                 </div>
 
@@ -318,7 +318,7 @@ export function AdminPurchaseForm({
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-[#806e68]">
-            Итого: <strong className="text-xl text-[#342622]">{money(total)} ₽</strong>
+            Итого: <strong className="text-xl text-[#342622]">{money(total)} сом</strong>
           </p>
           <div className="flex flex-col-reverse gap-3 sm:flex-row">
             <Link
