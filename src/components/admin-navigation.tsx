@@ -23,6 +23,12 @@ const navigation = [
     exact: false,
   },
   {
+    href: "/admin/customers",
+    label: "Покупатели",
+    icon: "👥",
+    exact: false,
+  },
+  {
     href: "/admin/suppliers",
     label: "Поставщики",
     icon: "🏢",
@@ -46,7 +52,7 @@ export function AdminNavigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="mt-8 flex max-w-full w-fit gap-1 overflow-x-auto rounded-[20px] border border-[#f0dfd9] bg-white p-1.5 shadow-[0_10px_35px_rgba(74,48,41,0.05)]">
+    <nav className="mt-8 flex w-full max-w-full flex-wrap gap-1 rounded-[20px] border border-[#f0dfd9] bg-white p-1.5 shadow-[0_10px_35px_rgba(74,48,41,0.05)]">
       {navigation.map((item) => {
         const isActive = item.exact
           ? pathname === item.href
