@@ -6,6 +6,10 @@ import {
   sanitizeCustomBouquetConfig,
   type CustomBouquetConfig,
 } from "@/lib/bouquet";
+import {
+  createBouquetCompositionSnapshot,
+  type BouquetCompositionSnapshot,
+} from "@/lib/order-flower-requirements";
 
 export const runtime = "nodejs";
 
@@ -40,6 +44,13 @@ type NormalizedCustomBouquet = {
   configuration: CustomBouquetConfig;
   quantity: number;
   displayedUnitPrice: number | null;
+};
+
+type BouquetCompositionRow = {
+  bouquet_id: string;
+  flower_id: string;
+  flower_name: string;
+  quantity: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -278,6 +289,52 @@ export async function POST(request: Request) {
       bouquetResult.rows.map((bouquet) => [bouquet.id, bouquet])
     );
 
+    const compositionResult = await client.query<BouquetCompositionRow>(
+      `
+        SELECT bi.bouquet_id::text,
+               bi.flower_id::text,
+               f.name AS flower_name,
+               bi.quantity
+        FROM public.bouquet_items bi
+        INNER JOIN public.flowers f ON f.id = bi.flower_id
+        WHERE bi.bouquet_id = ANY($1::bigint[])
+        ORDER BY bi.bouquet_id, bi.flower_id
+      `,
+      [bouquetIds]
+    );
+    const compositionByBouquet = new Map<string, BouquetCompositionRow[]>();
+    for (const compositionItem of compositionResult.rows) {
+      const composition =
+        compositionByBouquet.get(compositionItem.bouquet_id) ?? [];
+      composition.push(compositionItem);
+      compositionByBouquet.set(compositionItem.bouquet_id, composition);
+    }
+    const snapshotsByBouquet = new Map<string, BouquetCompositionSnapshot>();
+
+    for (const bouquet of bouquetResult.rows) {
+      const snapshot = createBouquetCompositionSnapshot(
+        (compositionByBouquet.get(bouquet.id) ?? []).map((item) => ({
+          flowerId: item.flower_id,
+          name: item.flower_name,
+          quantity: Number(item.quantity),
+        }))
+      );
+
+      if (!snapshot) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return Response.json(
+          {
+            success: false,
+            message: `Для букета «${bouquet.name}» не настроен состав`,
+          },
+          { status: 400 }
+        );
+      }
+
+      snapshotsByBouquet.set(bouquet.id, snapshot);
+    }
+
     let subtotalInDirams = 0;
 
     let priceAdjusted = false;
@@ -389,6 +446,10 @@ export async function POST(request: Request) {
       if (!bouquet) {
         throw new Error("Bouquet not found");
       }
+      const compositionSnapshot = snapshotsByBouquet.get(id);
+      if (!compositionSnapshot) {
+        throw new Error("Bouquet composition snapshot not found");
+      }
 
       await client.query(
         `
@@ -399,9 +460,10 @@ export async function POST(request: Request) {
             product_name,
             quantity,
             unit_price,
-            unit_cost
+            unit_cost,
+            bouquet_composition_snapshot
           )
-          VALUES ($1, 'bouquet', $2, $3, $4, $5, 0)
+          VALUES ($1, 'bouquet', $2, $3, $4, $5, 0, $6::jsonb)
         `,
         [
           order.id,
@@ -409,6 +471,7 @@ export async function POST(request: Request) {
           bouquet.name,
           item.quantity,
           bouquet.sale_price,
+          JSON.stringify(compositionSnapshot),
         ]
       );
     }

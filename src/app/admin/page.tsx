@@ -21,12 +21,14 @@ import {
 } from "@/lib/bouquet";
 import {
   getOrderFlowerRequirements,
+  type OrderBouquetComposition,
   type OrderFlowerRequirementsResult,
 } from "@/lib/order-flower-requirements";
 
 export const dynamic = "force-dynamic";
 
 type OrderItem = {
+  id: string;
   item_type: string;
   product_name: string;
   quantity: number;
@@ -95,6 +97,36 @@ function formatDate(value: Date) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(value);
+}
+
+function BouquetCompositionDetails({
+  composition,
+}: {
+  composition: OrderBouquetComposition | undefined;
+}) {
+  if (!composition || composition.source === "missing") {
+    return (
+      <p className="mt-2 text-xs text-[#a45d69]">
+        Состав букета не настроен
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 border-t border-[#f0dfd9] pt-2 text-xs leading-5 text-[#806e68]">
+      {composition.flowers.map((flower) => (
+        <p key={flower.flowerId}>
+          {flower.name}: {flower.quantity} на один букет · всего{" "}
+          {flower.totalQuantity}
+        </p>
+      ))}
+      <p className="mt-1 text-[#9a8179]">
+        {composition.source === "snapshot"
+          ? "Состав сохранён на момент оформления"
+          : "Используется текущий состав каталога"}
+      </p>
+    </div>
+  );
 }
 
 function OrderRequirementsCard({
@@ -281,6 +313,7 @@ export default async function AdminPage({
     LEFT JOIN LATERAL (
       SELECT json_agg(
         json_build_object(
+          'id', oi.id::text,
           'item_type', oi.item_type,
           'product_name', oi.product_name,
           'quantity', oi.quantity,
@@ -409,6 +442,7 @@ export default async function AdminPage({
           hasShortage: false,
           reservationState: "none",
           reservedForOrder: 0,
+          bouquetCompositions: [],
         },
       ]),
     );
@@ -830,50 +864,65 @@ export default async function AdminPage({
                     <h3 className="font-serif text-xl">Состав заказа</h3>
 
                     <div className="mt-4 space-y-3">
-                      {order.items.map((item, index) => (
-                        <div
-                          key={`${item.product_name}-${index}`}
-                          className="rounded-2xl border border-[#f0dfd9] bg-[#fffaf8] p-3 text-sm"
-                        >
-                          <div className="flex justify-between gap-4">
-                            <span>
-                              {item.product_name} × {item.quantity}
-                            </span>
+                      {order.items.map((item, index) => {
+                        const bouquetComposition = requirementsByOrder
+                          .get(order.id)
+                          ?.bouquetCompositions.find(
+                            (composition) =>
+                              composition.orderItemId === item.id,
+                          );
 
-                            <strong>
-                              {formatMoney(item.line_total)}
-                            </strong>
-                          </div>
+                        return (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-[#f0dfd9] bg-[#fffaf8] p-3 text-sm"
+                          >
+                            <div className="flex justify-between gap-4">
+                              <span>
+                                {item.product_name} × {item.quantity}
+                              </span>
 
-                          {item.item_type === "custom_bouquet" && (
-                            <div className="mt-2 text-xs leading-5 text-[#806e68]">
-                              {item.custom_summary ? (
-                                <>
-                                  <p>
-                                    {formatCustomBouquetComposition(item.custom_summary)}
-                                  </p>
-                                  <p>
-                                    Упаковка: {item.custom_summary.wrappingName}
-                                  </p>
-                                  <p>
-                                    Цена за один: {formatMoney(item.unit_price)}
-                                  </p>
-                                </>
-                              ) : (
-                                <p className="text-[#a45d69]">
-                                  Данные о составе недоступны
-                                </p>
-                              )}
-
-                              <AdminBouquetViewButton
-                                configuration={item.custom_configuration}
-                                summary={item.custom_summary}
-                                itemLabel={`Заказ ${order.order_number} · позиция ${index + 1}`}
-                              />
+                              <strong>
+                                {formatMoney(item.line_total)}
+                              </strong>
                             </div>
-                          )}
-                        </div>
-                      ))}
+
+                            {item.item_type === "bouquet" && (
+                              <BouquetCompositionDetails
+                                composition={bouquetComposition}
+                              />
+                            )}
+
+                            {item.item_type === "custom_bouquet" && (
+                              <div className="mt-2 text-xs leading-5 text-[#806e68]">
+                                {item.custom_summary ? (
+                                  <>
+                                    <p>
+                                      {formatCustomBouquetComposition(item.custom_summary)}
+                                    </p>
+                                    <p>
+                                      Упаковка: {item.custom_summary.wrappingName}
+                                    </p>
+                                    <p>
+                                      Цена за один: {formatMoney(item.unit_price)}
+                                    </p>
+                                  </>
+                                ) : (
+                                  <p className="text-[#a45d69]">
+                                    Данные о составе недоступны
+                                  </p>
+                                )}
+
+                                <AdminBouquetViewButton
+                                  configuration={item.custom_configuration}
+                                  summary={item.custom_summary}
+                                  itemLabel={`Заказ ${order.order_number} · позиция ${index + 1}`}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </section>
                 </div>
@@ -887,6 +936,7 @@ export default async function AdminPage({
                     hasShortage: false,
                     reservationState: "none",
                     reservedForOrder: 0,
+                    bouquetCompositions: [],
                   }}
                 />
 

@@ -139,3 +139,17 @@ psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\2026090
 ```powershell
 psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260909_app_privileges.sql"
 ```
+
+## Снимок состава готового букета в заказе
+
+Файл миграции: `20260910_order_item_bouquet_snapshot.sql`.
+
+Выполните файл в базе `lotus_db` через pgAdmin (**Tools → Query Tool**) под владельцем
+таблицы `public.order_items` (`postgres`). Миграция идемпотентно добавляет nullable-колонку
+`bouquet_composition_snapshot JSONB` и один раз заполняет её для старых позиций готовых
+букетов, у которых сейчас настроен корректный состав. Уже сохранённые снимки не
+перезаписываются, а позиции без состава остаются без снимка.
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260910_order_item_bouquet_snapshot.sql"
+```

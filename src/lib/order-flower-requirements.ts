@@ -18,6 +18,23 @@ export type OrderFlowerRequirement = {
   missingQuantity: number;
 };
 
+export type BouquetCompositionSnapshotFlower = {
+  flowerId: string;
+  name: string;
+  quantity: number;
+};
+
+export type BouquetCompositionSnapshot = {
+  version: 1;
+  flowers: BouquetCompositionSnapshotFlower[];
+};
+
+export type OrderBouquetComposition = {
+  orderItemId: string;
+  source: "snapshot" | "catalog" | "missing";
+  flowers: Array<BouquetCompositionSnapshotFlower & { totalQuantity: number }>;
+};
+
 export type OrderFlowerRequirementsResult = {
   requirements: OrderFlowerRequirement[];
   errors: string[];
@@ -25,6 +42,7 @@ export type OrderFlowerRequirementsResult = {
   hasShortage: boolean;
   reservationState: "none" | "active" | "consumed" | "released";
   reservedForOrder: number;
+  bouquetCompositions: OrderBouquetComposition[];
 };
 
 type OrderItemRow = {
@@ -35,6 +53,7 @@ type OrderItemRow = {
   product_name: string;
   quantity: number;
   custom_configuration: unknown;
+  bouquet_composition_snapshot: unknown;
 };
 
 type BouquetItemRow = {
@@ -50,6 +69,11 @@ type ConstructorFlowerRow = {
   flower_name: string;
   stock_quantity: number;
   constructor_kind: FlowerKind;
+};
+
+type SnapshotFlowerRow = {
+  flower_id: string;
+  stock_quantity: number;
 };
 
 type ReservationRow = {
@@ -69,6 +93,7 @@ type MutableOrderResult = {
   quantities: Map<string, number>;
   flowers: Map<string, StockFlower>;
   errors: Set<string>;
+  bouquetCompositions: OrderBouquetComposition[];
 };
 
 const FLOWER_KINDS: FlowerKind[] = ["rose", "peony", "tulip"];
@@ -77,12 +102,79 @@ const KIND_LABELS: Record<FlowerKind, string> = {
   peony: "Пион",
   tulip: "Тюльпан",
 };
+const MAX_BIGINT = "9223372036854775807";
+
+function isDatabaseId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[1-9]\d{0,18}$/.test(value) &&
+    (value.length < MAX_BIGINT.length || value <= MAX_BIGINT)
+  );
+}
+
+export function parseBouquetCompositionSnapshot(
+  value: unknown,
+): BouquetCompositionSnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const snapshot = value as { version?: unknown; flowers?: unknown };
+  if (
+    snapshot.version !== 1 ||
+    !Array.isArray(snapshot.flowers) ||
+    snapshot.flowers.length === 0 ||
+    snapshot.flowers.length > 100
+  ) {
+    return null;
+  }
+
+  const flowers: BouquetCompositionSnapshotFlower[] = [];
+  const flowerIds = new Set<string>();
+  for (const valueFlower of snapshot.flowers) {
+    if (
+      !valueFlower ||
+      typeof valueFlower !== "object" ||
+      Array.isArray(valueFlower)
+    ) {
+      return null;
+    }
+    const flower = valueFlower as {
+      flowerId?: unknown;
+      name?: unknown;
+      quantity?: unknown;
+    };
+    const name = typeof flower.name === "string" ? flower.name.trim() : "";
+    if (
+      !isDatabaseId(flower.flowerId) ||
+      flowerIds.has(flower.flowerId) ||
+      !name ||
+      name.length > 255 ||
+      !Number.isInteger(flower.quantity) ||
+      Number(flower.quantity) <= 0 ||
+      Number(flower.quantity) > 2_147_483_647
+    ) {
+      return null;
+    }
+    flowerIds.add(flower.flowerId);
+    flowers.push({
+      flowerId: flower.flowerId,
+      name,
+      quantity: Number(flower.quantity),
+    });
+  }
+  return { version: 1, flowers };
+}
+
+export function createBouquetCompositionSnapshot(
+  flowers: BouquetCompositionSnapshotFlower[],
+) {
+  return parseBouquetCompositionSnapshot({ version: 1, flowers });
+}
 
 function emptyMutableResult(): MutableOrderResult {
   return {
     quantities: new Map(),
     flowers: new Map(),
     errors: new Set(),
+    bouquetCompositions: [],
   };
 }
 
@@ -114,7 +206,8 @@ export async function getOrderFlowerRequirements(
              bouquet_id::text,
              product_name,
              quantity,
-             custom_configuration
+             custom_configuration,
+             bouquet_composition_snapshot
       FROM public.order_items
       WHERE order_id = ANY($1::uuid[])
       ORDER BY order_id, id
@@ -122,11 +215,36 @@ export async function getOrderFlowerRequirements(
     [uniqueOrderIds],
   );
 
+  const bouquetSnapshots = new Map<string, BouquetCompositionSnapshot | null>();
+  for (const item of orderItemsResult.rows) {
+    if (
+      item.item_type === "bouquet" &&
+      item.bouquet_composition_snapshot !== null &&
+      item.bouquet_composition_snapshot !== undefined
+    ) {
+      bouquetSnapshots.set(
+        item.id,
+        parseBouquetCompositionSnapshot(item.bouquet_composition_snapshot),
+      );
+    }
+  }
   const bouquetIds = [
     ...new Set(
       orderItemsResult.rows
-        .filter((item) => item.item_type === "bouquet" && item.bouquet_id)
+        .filter(
+          (item) =>
+            item.item_type === "bouquet" &&
+            item.bouquet_id &&
+            !bouquetSnapshots.has(item.id),
+        )
         .map((item) => item.bouquet_id as string),
+    ),
+  ];
+  const snapshotFlowerIds = [
+    ...new Set(
+      [...bouquetSnapshots.values()].flatMap((snapshot) =>
+        snapshot ? snapshot.flowers.map((flower) => flower.flowerId) : [],
+      ),
     ),
   ];
   const hasCustomBouquets = orderItemsResult.rows.some(
@@ -159,6 +277,16 @@ export async function getOrderFlowerRequirements(
           WHERE constructor_kind IS NOT NULL
         `)
     : { rows: [] as ConstructorFlowerRow[] };
+  const snapshotFlowersResult = snapshotFlowerIds.length > 0
+    ? await queryable.query<SnapshotFlowerRow>(
+        `
+          SELECT id::text AS flower_id, stock_quantity
+          FROM public.flowers
+          WHERE id = ANY($1::bigint[])
+        `,
+        [snapshotFlowerIds],
+      )
+    : { rows: [] as SnapshotFlowerRow[] };
   const reservationsResult = await queryable.query<ReservationRow>(
     `
       SELECT order_id::text, flower_id::text, quantity, status
@@ -183,6 +311,12 @@ export async function getOrderFlowerRequirements(
       stockQuantity: Number(flower.stock_quantity),
     });
   }
+  const snapshotStockByFlower = new Map(
+    snapshotFlowersResult.rows.map((flower) => [
+      flower.flower_id,
+      Number(flower.stock_quantity),
+    ]),
+  );
 
   const activeReservedByFlower = new Map<string, number>();
   const reservationsByOrder = new Map<string, ReservationRow[]>();
@@ -215,15 +349,85 @@ export async function getOrderFlowerRequirements(
     }
 
     if (item.item_type === "bouquet") {
+      if (bouquetSnapshots.has(item.id)) {
+        const snapshot = bouquetSnapshots.get(item.id);
+        if (!snapshot) {
+          console.error("Invalid bouquet composition snapshot:", {
+            orderId: item.order_id,
+            orderItemId: item.id,
+          });
+          order.errors.add(
+            `Сохранённый состав букета «${item.product_name}» повреждён`,
+          );
+          order.bouquetCompositions.push({
+            orderItemId: item.id,
+            source: "missing",
+            flowers: [],
+          });
+          continue;
+        }
+        order.bouquetCompositions.push({
+          orderItemId: item.id,
+          source: "snapshot",
+          flowers: snapshot.flowers.map((flower) => ({
+            ...flower,
+            totalQuantity: flower.quantity * orderItemQuantity,
+          })),
+        });
+        for (const snapshotFlower of snapshot.flowers) {
+          const stockQuantity = snapshotStockByFlower.get(
+            snapshotFlower.flowerId,
+          );
+          if (stockQuantity === undefined) {
+            order.errors.add(
+              `Цветок «${snapshotFlower.name}» из сохранённого состава не найден`,
+            );
+            continue;
+          }
+          addRequirement(
+            order,
+            {
+              flowerId: snapshotFlower.flowerId,
+              name: snapshotFlower.name,
+              stockQuantity,
+            },
+            snapshotFlower.quantity * orderItemQuantity,
+          );
+        }
+        continue;
+      }
       if (!item.bouquet_id) {
         order.errors.add(`У букета «${item.product_name}» отсутствует состав`);
+        order.bouquetCompositions.push({
+          orderItemId: item.id,
+          source: "missing",
+          flowers: [],
+        });
         continue;
       }
       const composition = compositionByBouquet.get(item.bouquet_id) ?? [];
       if (composition.length === 0) {
         order.errors.add(`У букета «${item.product_name}» отсутствует состав`);
+        order.bouquetCompositions.push({
+          orderItemId: item.id,
+          source: "missing",
+          flowers: [],
+        });
         continue;
       }
+      order.bouquetCompositions.push({
+        orderItemId: item.id,
+        source: "catalog",
+        flowers: composition
+          .filter((compositionItem) => compositionItem.flower_name)
+          .map((compositionItem) => ({
+            flowerId: compositionItem.flower_id,
+            name: compositionItem.flower_name as string,
+            quantity: Number(compositionItem.quantity),
+            totalQuantity:
+              Number(compositionItem.quantity) * orderItemQuantity,
+          })),
+      });
       for (const compositionItem of composition) {
         if (
           !compositionItem.flower_name ||
@@ -350,6 +554,7 @@ export async function getOrderFlowerRequirements(
             (total, quantity) => total + quantity,
             0,
           ),
+          bouquetCompositions: result.bouquetCompositions,
         },
       ];
     }),
