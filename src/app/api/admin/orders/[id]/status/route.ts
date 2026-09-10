@@ -307,8 +307,20 @@ async function consumeReservations(
 async function updateOrderStatus(
   client: PoolClient,
   orderId: string,
+  oldStatus: OrderStatus,
   status: OrderStatus,
+  comment: string | null,
 ) {
+  const historyBoundaryResult = await client.query<{ max_id: string }>(
+    `
+      SELECT COALESCE(max(id), 0)::text AS max_id
+      FROM public.order_status_history
+      WHERE order_id = $1::uuid
+    `,
+    [orderId],
+  );
+  const historyBoundary = historyBoundaryResult.rows[0]?.max_id ?? "0";
+
   await client.query(
     `
       UPDATE public.orders
@@ -321,6 +333,30 @@ async function updateOrderStatus(
     `,
     [status, orderId],
   );
+
+  const historyResult = await client.query(
+    `
+      UPDATE public.order_status_history
+      SET comment = $5::text
+      WHERE id = (
+        SELECT id
+        FROM public.order_status_history
+        WHERE order_id = $1::uuid
+          AND old_status = $2::varchar
+          AND new_status = $3::varchar
+          AND id > $4::bigint
+        ORDER BY id DESC
+        LIMIT 1
+      )
+      RETURNING id
+    `,
+    [orderId, oldStatus, status, historyBoundary, comment],
+  );
+  if (historyResult.rowCount !== 1) {
+    throw new Error(
+      `Order ${orderId} status history trigger did not create exactly one row`,
+    );
+  }
 }
 
 export async function PATCH(
@@ -342,7 +378,7 @@ export async function PATCH(
     );
   }
 
-  let body: { status?: OrderStatus };
+  let body: { status?: OrderStatus; comment?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -354,6 +390,24 @@ export async function PATCH(
   if (!body.status || !allowedStatuses.includes(body.status)) {
     return Response.json(
       { success: false, message: "Недопустимый статус заказа" },
+      { status: 400 },
+    );
+  }
+  if (
+    body.comment !== undefined &&
+    body.comment !== null &&
+    typeof body.comment !== "string"
+  ) {
+    return Response.json(
+      { success: false, message: "Некорректное примечание" },
+      { status: 400 },
+    );
+  }
+  const requestedComment =
+    typeof body.comment === "string" ? body.comment.trim() : "";
+  if (requestedComment.length > 1_000) {
+    return Response.json(
+      { success: false, message: "Примечание слишком длинное" },
       { status: 400 },
     );
   }
@@ -395,11 +449,14 @@ export async function PATCH(
     }
 
     let warning: string | undefined;
+    let historyComment = requestedComment || null;
     if (order.status === "new" && body.status === "confirmed") {
       const requirements = await readRequirements(client, order.id);
       await createReservations(client, order.id, requirements);
+      historyComment ??= "Цветы зарезервированы";
     } else if (order.status === "confirmed" && body.status === "preparing") {
       await consumeReservations(client, order);
+      historyComment ??= "Цветы списаны со склада для сборки";
     } else if (order.status === "confirmed" && body.status === "cancelled") {
       await client.query(
         `
@@ -412,15 +469,23 @@ export async function PATCH(
         `,
         [order.id],
       );
+      historyComment ??= "Резерв цветов освобождён";
     } else if (
       body.status === "cancelled" &&
       ["preparing", "ready", "delivering"].includes(order.status)
     ) {
       warning =
         "Цветы уже списаны. Для фактического возврата используйте ручную корректировку склада.";
+      historyComment ??= warning;
     }
 
-    await updateOrderStatus(client, order.id, body.status);
+    await updateOrderStatus(
+      client,
+      order.id,
+      order.status,
+      body.status,
+      historyComment,
+    );
     await client.query("COMMIT");
 
     revalidatePath("/admin");

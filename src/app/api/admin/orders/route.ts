@@ -440,6 +440,20 @@ export async function POST(request: Request) {
 
     const order = orderResult.rows[0];
 
+    await client.query(
+      `
+        INSERT INTO public.order_status_history (
+          order_id,
+          old_status,
+          new_status,
+          changed_by,
+          comment
+        )
+        VALUES ($1::uuid, NULL, 'new'::varchar, NULL, NULL)
+      `,
+      [order.id]
+    );
+
     for (const [id, item] of catalogItems) {
       const bouquet = bouquets.get(id);
 

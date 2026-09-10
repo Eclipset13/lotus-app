@@ -46,6 +46,14 @@ type RawOrderItem = Omit<
   custom_summary: unknown;
 };
 
+type OrderStatusHistoryEntry = {
+  id: string;
+  old_status: string | null;
+  new_status: string;
+  comment: string | null;
+  created_at: string;
+};
+
 type AdminOrder = {
   id: string;
   order_number: string;
@@ -67,6 +75,7 @@ type AdminOrder = {
   floor: string | null;
   requested_at: Date | null;
   items: RawOrderItem[];
+  status_history: OrderStatusHistoryEntry[];
 };
 
 const statusLabels: Record<string, string> = {
@@ -88,7 +97,7 @@ function formatMoney(value: string) {
   return `${Number(value).toLocaleString("ru-RU")} сом`;
 }
 
-function formatDate(value: Date) {
+function formatDate(value: Date | string) {
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: "Asia/Dushanbe",
     day: "2-digit",
@@ -96,7 +105,7 @@ function formatDate(value: Date) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(value);
+  }).format(value instanceof Date ? value : new Date(value));
 }
 
 function BouquetCompositionDetails({
@@ -126,6 +135,56 @@ function BouquetCompositionDetails({
           : "Используется текущий состав каталога"}
       </p>
     </div>
+  );
+}
+
+function OrderStatusHistory({
+  entries,
+}: {
+  entries: OrderStatusHistoryEntry[];
+}) {
+  return (
+    <details className="border-t border-[#f0dfd9] bg-white px-6 py-5 md:px-8">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-xl outline-none focus-visible:ring-4 focus-visible:ring-[#f4cbc4]/35 [&::-webkit-details-marker]:hidden">
+        <span className="font-serif text-xl">История статусов</span>
+        <span className="rounded-full bg-[#f8e7e2] px-3 py-1 text-xs font-semibold text-[#9f5f56]">
+          {entries.length}
+        </span>
+      </summary>
+
+      {entries.length === 0 ? (
+        <p className="mt-4 text-sm text-[#806e68]">
+          История статусов пока отсутствует
+        </p>
+      ) : (
+        <ol className="mt-5 space-y-3 border-l border-[#e7c8bc] pl-5">
+          {entries.map((entry) => {
+            const oldLabel = entry.old_status
+              ? statusLabels[entry.old_status] || entry.old_status
+              : "Заказ создан";
+            const newLabel =
+              statusLabels[entry.new_status] || entry.new_status;
+
+            return (
+              <li key={entry.id} className="relative">
+                <span className="absolute -left-[25px] top-1.5 h-2.5 w-2.5 rounded-full bg-[#c97d72] ring-4 ring-white" />
+                <p className="text-xs text-[#99817a]">
+                  {formatDate(entry.created_at)}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-[#4d3934]">
+                  {oldLabel} → {newLabel}
+                </p>
+                {entry.comment && (
+                  <p className="mt-1 text-sm text-[#806e68]">
+                    {entry.comment}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </details>
   );
 }
 
@@ -279,7 +338,8 @@ export default async function AdminPage({
       delivery.entrance,
       delivery.floor,
       delivery.requested_at,
-      COALESCE(order_products.items, '[]'::json) AS items
+      COALESCE(order_products.items, '[]'::json) AS items,
+      COALESCE(status_history.entries, '[]'::json) AS status_history
     FROM orders o
     JOIN users u
       ON u.id = o.customer_id
@@ -331,6 +391,21 @@ export default async function AdminPage({
       FROM order_items oi
       WHERE oi.order_id = o.id
     ) order_products ON true
+
+    LEFT JOIN LATERAL (
+      SELECT json_agg(
+        json_build_object(
+          'id', history.id::text,
+          'old_status', history.old_status,
+          'new_status', history.new_status,
+          'comment', history.comment,
+          'created_at', history.created_at
+        )
+        ORDER BY history.created_at, history.id
+      ) AS entries
+      FROM order_status_history history
+      WHERE history.order_id = o.id
+    ) status_history ON true
 
     ORDER BY o.created_at DESC
   `);
@@ -939,6 +1014,8 @@ export default async function AdminPage({
                     bouquetCompositions: [],
                   }}
                 />
+
+                <OrderStatusHistory entries={order.status_history} />
 
                 <div className="border-t border-[#f0dfd9] bg-[#fffdfc] px-6 py-5 md:px-8">
                   <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
