@@ -153,3 +153,28 @@ psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\2026090
 ```powershell
 psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260910_order_item_bouquet_snapshot.sql"
 ```
+
+## Административное управление доставками
+
+Файл миграции: `20260911_deliveries_admin.sql`.
+
+Выполните файл в базе `lotus_db` через pgAdmin (**Tools → Query Tool**) под владельцем
+таблицы `public.deliveries` (`postgres`). Миграция идемпотентно добавляет плановое время
+`scheduled_at`, внутреннее примечание `internal_note` и индексы для статуса, времени и
+даты создания. Существующие доставки и ограничения не изменяются.
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260911_deliveries_admin.sql"
+```
+
+## Синхронизация старых отменённых доставок
+
+Файл миграции: `20260912_reconcile_cancelled_deliveries.sql`.
+
+Однократно приводит старые незавершённые доставки отменённых заказов к статусу
+`cancelled`. Доставленные записи и исторические данные не удаляются. Повторный запуск
+безопасен.
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260912_reconcile_cancelled_deliveries.sql"
+```

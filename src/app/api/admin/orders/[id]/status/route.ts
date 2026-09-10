@@ -6,20 +6,14 @@ import {
   getOrderFlowerRequirements,
   type OrderFlowerRequirement,
 } from "@/lib/order-flower-requirements";
+import {
+  canTransitionOrderStatus,
+  isOrderStatus,
+  updateOrderStatusWithHistory,
+  type OrderStatus,
+} from "@/lib/order-status";
 
 export const runtime = "nodejs";
-
-const allowedStatuses = [
-  "new",
-  "confirmed",
-  "preparing",
-  "ready",
-  "delivering",
-  "completed",
-  "cancelled",
-] as const;
-
-type OrderStatus = (typeof allowedStatuses)[number];
 
 type LockedOrder = {
   id: string;
@@ -54,16 +48,6 @@ class StatusTransitionError extends Error {
     super(message);
   }
 }
-
-const transitions: Record<OrderStatus, readonly OrderStatus[]> = {
-  new: ["confirmed", "cancelled"],
-  confirmed: ["preparing", "cancelled"],
-  preparing: ["ready", "cancelled"],
-  ready: ["delivering", "completed", "cancelled"],
-  delivering: ["completed", "cancelled"],
-  completed: [],
-  cancelled: [],
-};
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -304,57 +288,50 @@ async function consumeReservations(
   }
 }
 
-async function updateOrderStatus(
+async function syncDeliveryFromOrderStatus(
   client: PoolClient,
   orderId: string,
-  oldStatus: OrderStatus,
   status: OrderStatus,
-  comment: string | null,
 ) {
-  const historyBoundaryResult = await client.query<{ max_id: string }>(
-    `
-      SELECT COALESCE(max(id), 0)::text AS max_id
-      FROM public.order_status_history
-      WHERE order_id = $1::uuid
-    `,
-    [orderId],
-  );
-  const historyBoundary = historyBoundaryResult.rows[0]?.max_id ?? "0";
-
-  await client.query(
-    `
-      UPDATE public.orders
-      SET status = $1::varchar,
-          updated_at = NOW(),
-          confirmed_at = CASE WHEN $1::varchar = 'confirmed'::varchar THEN COALESCE(confirmed_at, NOW()) ELSE confirmed_at END,
-          completed_at = CASE WHEN $1::varchar = 'completed'::varchar THEN COALESCE(completed_at, NOW()) ELSE completed_at END,
-          cancelled_at = CASE WHEN $1::varchar = 'cancelled'::varchar THEN COALESCE(cancelled_at, NOW()) ELSE cancelled_at END
-      WHERE id = $2::uuid
-    `,
-    [status, orderId],
-  );
-
-  const historyResult = await client.query(
-    `
-      UPDATE public.order_status_history
-      SET comment = $5::text
-      WHERE id = (
-        SELECT id
-        FROM public.order_status_history
+  if (status === "cancelled") {
+    await client.query(
+      `
+        UPDATE public.deliveries
+        SET status = 'cancelled',
+            updated_at = NOW()
         WHERE order_id = $1::uuid
-          AND old_status = $2::varchar
-          AND new_status = $3::varchar
-          AND id > $4::bigint
-        ORDER BY id DESC
-        LIMIT 1
-      )
-      RETURNING id
-    `,
-    [orderId, oldStatus, status, historyBoundary, comment],
-  );
-  if (historyResult.rowCount !== 1) {
-    throw new Error(
-      `Order ${orderId} status history trigger did not create exactly one row`,
+          AND status IN ('planned', 'assigned', 'on_the_way')
+      `,
+      [orderId],
+    );
+    return;
+  }
+
+  if (status === "delivering") {
+    await client.query(
+      `
+        UPDATE public.deliveries
+        SET status = 'on_the_way',
+            updated_at = NOW()
+        WHERE order_id = $1::uuid
+          AND status = 'assigned'
+      `,
+      [orderId],
+    );
+    return;
+  }
+
+  if (status === "completed") {
+    await client.query(
+      `
+        UPDATE public.deliveries
+        SET status = 'delivered',
+            delivered_at = COALESCE(delivered_at, NOW()),
+            updated_at = NOW()
+        WHERE order_id = $1::uuid
+          AND status = 'on_the_way'
+      `,
+      [orderId],
     );
   }
 }
@@ -378,7 +355,7 @@ export async function PATCH(
     );
   }
 
-  let body: { status?: OrderStatus; comment?: unknown };
+  let body: { status?: unknown; comment?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -387,7 +364,7 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  if (!body.status || !allowedStatuses.includes(body.status)) {
+  if (!isOrderStatus(body.status)) {
     return Response.json(
       { success: false, message: "Недопустимый статус заказа" },
       { status: 400 },
@@ -442,7 +419,7 @@ export async function PATCH(
         order,
       });
     }
-    if (!transitions[order.status].includes(body.status)) {
+    if (!canTransitionOrderStatus(order.status, body.status)) {
       throw new StatusTransitionError(
         "Недопустимый переход статуса заказа",
       );
@@ -479,16 +456,18 @@ export async function PATCH(
       historyComment ??= warning;
     }
 
-    await updateOrderStatus(
+    await updateOrderStatusWithHistory(
       client,
       order.id,
       order.status,
       body.status,
       historyComment,
     );
+    await syncDeliveryFromOrderStatus(client, order.id, body.status);
     await client.query("COMMIT");
 
     revalidatePath("/admin");
+    revalidatePath("/admin/deliveries");
     revalidatePath("/admin/inventory");
     return Response.json({
       success: true,

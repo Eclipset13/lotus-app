@@ -836,6 +836,7 @@ export default async function AdminPage({
             {orders.map((order) => (
               <article
                 key={order.id}
+                id={`order-${order.id}`}
                 className="overflow-hidden rounded-[30px] border border-[#f0dfd9] bg-white"
               >
                 <div className="flex flex-wrap items-start justify-between gap-5 border-b border-[#f0dfd9] p-6 md:p-8">

@@ -17,6 +17,12 @@ const navigation = [
     exact: false,
   },
   {
+    href: "/admin/deliveries",
+    label: "Доставка",
+    icon: "📍",
+    exact: false,
+  },
+  {
     href: "/admin/suppliers",
     label: "Поставщики",
     icon: "🏢",
