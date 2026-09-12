@@ -1,11 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
 type AdminOrderActionsProps = {
     orderId: string;
+    orderNumber: string;
     currentStatus: string;
+    fulfillmentType: string;
+    deliveryStatus: string | null;
+    courierName: string | null;
 };
 
 const statuses = [
@@ -59,7 +64,11 @@ const allowedTransitions: Record<string, string[]> = {
 
 export function AdminOrderActions({
     orderId,
+    orderNumber,
     currentStatus,
+    fulfillmentType,
+    deliveryStatus,
+    courierName,
 }: AdminOrderActionsProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
@@ -148,6 +157,25 @@ export function AdminOrderActions({
         }
     }
 
+    const visibleTransitions = (allowedTransitions[currentStatus] ?? []).filter(
+        (nextStatus) => {
+            if (fulfillmentType !== "delivery") return true;
+            if (currentStatus === "ready" && nextStatus === "completed") {
+                return false;
+            }
+            if (currentStatus === "ready" && nextStatus === "delivering") {
+                return deliveryStatus === "assigned" && Boolean(courierName?.trim());
+            }
+            if (currentStatus === "delivering" && nextStatus === "completed") {
+                return deliveryStatus === "on_the_way";
+            }
+            return true;
+        },
+    );
+    const showDeliveryManagement =
+        fulfillmentType === "delivery" &&
+        ["ready", "delivering"].includes(currentStatus);
+
     return (
         <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#99817a]">
@@ -156,9 +184,7 @@ export function AdminOrderActions({
 
             <div className="mt-3 flex flex-wrap gap-2">
                 {statuses
-                  .filter((status) =>
-                    (allowedTransitions[currentStatus] ?? []).includes(status.value),
-                  )
+                  .filter((status) => visibleTransitions.includes(status.value))
                   .map((status) => {
                     return (
                         <button
@@ -172,7 +198,15 @@ export function AdminOrderActions({
                         </button>
                     );
                 })}
-                {(allowedTransitions[currentStatus] ?? []).length === 0 && (
+                {showDeliveryManagement && (
+                    <Link
+                        href={`/admin/deliveries?q=${encodeURIComponent(orderNumber)}`}
+                        className="rounded-full border border-[#d7b6ad] bg-white px-4 py-2 text-sm font-semibold text-[#9f5f56] transition hover:bg-[#fff4f1]"
+                    >
+                        Управлять доставкой
+                    </Link>
+                )}
+                {visibleTransitions.length === 0 && !showDeliveryManagement && (
                     <p className="text-sm text-[#806e68]">
                         Для этого статуса дальнейшие переходы недоступны.
                     </p>

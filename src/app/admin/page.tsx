@@ -74,6 +74,8 @@ type AdminOrder = {
   entrance: string | null;
   floor: string | null;
   requested_at: Date | null;
+  delivery_status: string | null;
+  courier_name: string | null;
   items: RawOrderItem[];
   status_history: OrderStatusHistoryEntry[];
 };
@@ -338,6 +340,8 @@ export default async function AdminPage({
       delivery.entrance,
       delivery.floor,
       delivery.requested_at,
+      delivery.delivery_status,
+      delivery.courier_name,
       COALESCE(order_products.items, '[]'::json) AS items,
       COALESCE(status_history.entries, '[]'::json) AS status_history
     FROM orders o
@@ -363,7 +367,9 @@ export default async function AdminPage({
         d.apartment,
         d.entrance,
         d.floor,
-        d.requested_at
+        d.requested_at,
+        d.status AS delivery_status,
+        d.courier_name
       FROM deliveries d
       WHERE d.order_id = o.id
       ORDER BY d.created_at DESC
@@ -1027,7 +1033,11 @@ export default async function AdminPage({
 
                     <AdminOrderActions
                       orderId={order.id}
+                      orderNumber={order.order_number}
                       currentStatus={order.status}
+                      fulfillmentType={order.fulfillment_type}
+                      deliveryStatus={order.delivery_status}
+                      courierName={order.courier_name}
                     />
                   </div>
                 </div>

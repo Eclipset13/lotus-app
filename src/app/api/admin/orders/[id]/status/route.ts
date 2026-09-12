@@ -19,6 +19,13 @@ type LockedOrder = {
   id: string;
   order_number: string;
   status: OrderStatus;
+  fulfillment_type: "delivery" | "pickup";
+};
+
+type LockedDelivery = {
+  id: string;
+  status: string;
+  courier_name: string | null;
 };
 
 type LockedFlower = {
@@ -290,9 +297,12 @@ async function consumeReservations(
 
 async function syncDeliveryFromOrderStatus(
   client: PoolClient,
-  orderId: string,
+  order: LockedOrder,
   status: OrderStatus,
+  lockedDelivery: LockedDelivery | null,
 ) {
+  if (order.fulfillment_type === "pickup") return;
+
   if (status === "cancelled") {
     await client.query(
       `
@@ -302,38 +312,91 @@ async function syncDeliveryFromOrderStatus(
         WHERE order_id = $1::uuid
           AND status IN ('planned', 'assigned', 'on_the_way')
       `,
-      [orderId],
+      [order.id],
     );
     return;
   }
 
   if (status === "delivering") {
-    await client.query(
+    const deliveryResult = await client.query(
       `
         UPDATE public.deliveries
         SET status = 'on_the_way',
             updated_at = NOW()
-        WHERE order_id = $1::uuid
+        WHERE id = $1::uuid
           AND status = 'assigned'
       `,
-      [orderId],
+      [lockedDelivery?.id ?? null],
     );
+    if (deliveryResult.rowCount !== 1) {
+      throw new Error(`Delivery for order ${order.id} changed concurrently`);
+    }
     return;
   }
 
   if (status === "completed") {
-    await client.query(
+    const deliveryResult = await client.query(
       `
         UPDATE public.deliveries
         SET status = 'delivered',
             delivered_at = COALESCE(delivered_at, NOW()),
             updated_at = NOW()
-        WHERE order_id = $1::uuid
+        WHERE id = $1::uuid
           AND status = 'on_the_way'
       `,
-      [orderId],
+      [lockedDelivery?.id ?? null],
+    );
+    if (deliveryResult.rowCount !== 1) {
+      throw new Error(`Delivery for order ${order.id} changed concurrently`);
+    }
+  }
+}
+
+async function validateAndLockDeliveryTransition(
+  client: PoolClient,
+  order: LockedOrder,
+  nextStatus: OrderStatus,
+) {
+  if (order.fulfillment_type === "pickup") return null;
+
+  if (order.status === "ready" && nextStatus === "completed") {
+    throw new StatusTransitionError(
+      "Заказ с доставкой нельзя завершить до фактической доставки",
     );
   }
+
+  const needsDelivery =
+    (order.status === "ready" && nextStatus === "delivering") ||
+    (order.status === "delivering" && nextStatus === "completed");
+  if (!needsDelivery) return null;
+
+  const deliveryResult = await client.query<LockedDelivery>(
+    `
+      SELECT id::text, status, courier_name
+      FROM public.deliveries
+      WHERE order_id = $1::uuid
+      FOR UPDATE
+    `,
+    [order.id],
+  );
+  const delivery = deliveryResult.rows[0];
+  if (!delivery) {
+    throw new StatusTransitionError("Для заказа не найдена доставка");
+  }
+
+  if (nextStatus === "delivering") {
+    if (delivery.status !== "assigned" || !delivery.courier_name?.trim()) {
+      throw new StatusTransitionError(
+        "Сначала назначьте курьера в разделе «Доставка»",
+      );
+    }
+  } else if (delivery.status !== "on_the_way") {
+    throw new StatusTransitionError(
+      "Заказ можно завершить только после перевода доставки в статус «В пути»",
+    );
+  }
+
+  return delivery;
 }
 
 export async function PATCH(
@@ -357,7 +420,15 @@ export async function PATCH(
 
   let body: { status?: unknown; comment?: unknown };
   try {
-    body = await request.json();
+    const parsedBody: unknown = await request.json();
+    if (
+      !parsedBody ||
+      typeof parsedBody !== "object" ||
+      Array.isArray(parsedBody)
+    ) {
+      throw new Error("Invalid request body");
+    }
+    body = parsedBody as { status?: unknown; comment?: unknown };
   } catch {
     return Response.json(
       { success: false, message: "Некорректный запрос" },
@@ -395,7 +466,7 @@ export async function PATCH(
     await client.query("BEGIN");
     const orderResult = await client.query<LockedOrder>(
       `
-        SELECT id::text, order_number, status
+        SELECT id::text, order_number, status, fulfillment_type
         FROM public.orders
         WHERE id = $1::uuid
         FOR UPDATE
@@ -424,6 +495,11 @@ export async function PATCH(
         "Недопустимый переход статуса заказа",
       );
     }
+    const lockedDelivery = await validateAndLockDeliveryTransition(
+      client,
+      order,
+      body.status,
+    );
 
     let warning: string | undefined;
     let historyComment = requestedComment || null;
@@ -463,7 +539,12 @@ export async function PATCH(
       body.status,
       historyComment,
     );
-    await syncDeliveryFromOrderStatus(client, order.id, body.status);
+    await syncDeliveryFromOrderStatus(
+      client,
+      order,
+      body.status,
+      lockedDelivery,
+    );
     await client.query("COMMIT");
 
     revalidatePath("/admin");
