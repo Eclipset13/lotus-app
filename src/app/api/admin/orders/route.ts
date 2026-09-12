@@ -1,3 +1,5 @@
+import { normalizePhone } from "@/lib/phone";
+import { findOrCreateCustomer, CustomerPhoneConflictError } from "@/lib/customers";
 import { db } from "@/lib/db";
 import type { PoolClient } from "pg";
 import {
@@ -82,10 +84,10 @@ export async function POST(request: Request) {
 
   const customerName = trimString(body.customer?.name);
   const customerPhone = trimString(body.customer?.phone);
-  const phoneDigits = customerPhone?.replace(/\D/g, "");
+  const canonicalPhone = normalizePhone(customerPhone);
   const streetAddress = trimString(body.delivery?.streetAddress);
 
-  if (!customerName || !customerPhone || phoneDigits.length < 9) {
+  if (!customerName || !canonicalPhone) {
     return Response.json(
       {
         success: false,
@@ -250,7 +252,7 @@ export async function POST(request: Request) {
 
   try {
     client = await db.connect();
-    await client.query("BEGIN");
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
     transactionStarted = true;
 
     const bouquetIds = [...catalogItems.keys()];
@@ -373,43 +375,7 @@ export async function POST(request: Request) {
     const deliveryCost = 0;
     const totalAmount = subtotal + deliveryCost;
 
-    const existingUser = await client.query<{ id: string }>(
-      `
-        SELECT id
-        FROM users
-        WHERE phone = $1
-        ORDER BY created_at
-        LIMIT 1
-      `,
-      [customerPhone]
-    );
-
-    let customerId: string;
-
-    if (existingUser.rows[0]) {
-      customerId = existingUser.rows[0].id;
-
-      await client.query(
-        `
-          UPDATE users
-          SET name = $1,
-              updated_at = now()
-          WHERE id = $2
-        `,
-        [customerName, customerId]
-      );
-    } else {
-      const newUser = await client.query<{ id: string }>(
-        `
-          INSERT INTO users (name, phone)
-          VALUES ($1, $2)
-          RETURNING id
-        `,
-        [customerName, customerPhone]
-      );
-
-      customerId = newUser.rows[0].id;
-    }
+    const customerId = await findOrCreateCustomer(client, customerName, canonicalPhone);
 
     const orderResult = await client.query<{
       id: string;
@@ -585,6 +551,9 @@ export async function POST(request: Request) {
       } catch (rollbackError) {
         console.error("POST /api/orders rollback failed:", rollbackError);
       }
+    }
+    if (error instanceof CustomerPhoneConflictError) {
+      return Response.json({ success: false, message: "Для этого номера оформление недоступно. Свяжитесь с магазином." }, { status: 409 });
     }
     console.error("POST /api/orders failed:", error);
 

@@ -1,3 +1,4 @@
+import { normalizePhone } from "@/lib/phone";
 import { AdminOrderActions } from "@/components/admin-order-actions";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -450,9 +451,11 @@ export default async function AdminPage({
     }),
   }));
 
+  const searchedPhone = normalizePhone(searchQuery);
   const filteredOrders = allOrders.filter((order) => {
     const matchesSearch =
       !searchQuery ||
+      (searchedPhone !== null && normalizePhone(order.customer_phone) === searchedPhone) ||
       [
         order.order_number,
         order.customer_name,

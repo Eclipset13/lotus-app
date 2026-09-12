@@ -1,3 +1,6 @@
+import { customerScopeSql } from "@/lib/customer-scope";
+import { normalizePhone } from "@/lib/phone";
+import { loadCustomerPhoneMap } from "@/lib/customers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AdminSelect } from "@/components/admin-filter-select";
@@ -43,50 +46,6 @@ type SearchParams = {
   page?: string | string[];
 };
 
-const customerScopeSql = `
-  customer_scope AS (
-    SELECT u.id, u.name, u.phone, u.created_at
-    FROM public.users u
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM public.user_roles admin_user_role
-      JOIN public.roles admin_role ON admin_role.id = admin_user_role.role_id
-      WHERE admin_user_role.user_id = u.id
-        AND admin_role.code IN ('admin', 'super_admin')
-    )
-      AND (
-        EXISTS (
-          SELECT 1
-          FROM public.user_roles customer_user_role
-          JOIN public.roles customer_role ON customer_role.id = customer_user_role.role_id
-          WHERE customer_user_role.user_id = u.id
-            AND customer_role.code = 'customer'
-        )
-        OR EXISTS (
-          SELECT 1
-          FROM public.orders customer_order
-          WHERE customer_order.customer_id = u.id
-        )
-      )
-  ),
-  order_aggregates AS (
-    SELECT o.customer_id,
-           count(*) FILTER (WHERE o.status <> 'cancelled')::int AS order_count,
-           count(*) FILTER (WHERE o.status = 'completed')::int AS completed_order_count,
-           max(o.created_at) FILTER (WHERE o.status <> 'cancelled') AS last_order_at
-    FROM public.orders o
-    GROUP BY o.customer_id
-  ),
-  payment_aggregates AS (
-    SELECT o.customer_id,
-           COALESCE(sum(p.amount), 0)::text AS paid_total
-    FROM public.orders o
-    JOIN public.payments p ON p.order_id = o.id
-    WHERE o.status <> 'cancelled'
-      AND p.status = 'paid'
-    GROUP BY o.customer_id
-  )
-`;
 
 function singleParam(value: string | string[] | undefined) {
   return typeof value === "string" ? value : "";
@@ -148,19 +107,24 @@ export default async function AdminCustomersPage({
     ? Math.max(1, Number(requestedPageValue))
     : 1;
 
-  const queryValues: string[] = [];
+  const phoneMap = JSON.stringify(await loadCustomerPhoneMap(db));
+  const queryValues: string[] = [phoneMap];
   const conditions: string[] = [];
 
   if (query) {
     queryValues.push(`%${query}%`);
     const placeholder = `$${queryValues.length}`;
+    const canonicalQuery = normalizePhone(query);
+    queryValues.push(canonicalQuery ?? "");
+    const phonePlaceholder = `$${queryValues.length}`;
     conditions.push(`(
-      c.name ILIKE ${placeholder}
+      c.search_names ILIKE ${placeholder}
+      OR c.phone = NULLIF(${phonePlaceholder}, '')
       OR c.phone ILIKE ${placeholder}
       OR EXISTS (
         SELECT 1
         FROM public.customer_addresses search_address
-        WHERE search_address.user_id = c.id
+        WHERE search_address.user_id = ANY(c.member_ids)
           AND concat_ws(
             ' ', search_address.city, search_address.street_address,
             search_address.apartment, search_address.entrance, search_address.floor
@@ -171,7 +135,7 @@ export default async function AdminCustomersPage({
         FROM public.orders search_order
         LEFT JOIN public.deliveries search_delivery
           ON search_delivery.order_id = search_order.id
-        WHERE search_order.customer_id = c.id
+        WHERE search_order.customer_id = ANY(c.member_ids)
           AND (
             search_order.order_number ILIKE ${placeholder}
             OR concat_ws(
@@ -226,7 +190,7 @@ export default async function AdminCustomersPage({
       FROM customer_scope c
       LEFT JOIN order_aggregates oa ON oa.customer_id = c.id
       LEFT JOIN payment_aggregates pa ON pa.customer_id = c.id
-    `),
+    `, [phoneMap]),
     db.query<{ total: number }>(
       `
         WITH ${customerScopeSql}
@@ -280,7 +244,7 @@ export default async function AdminCustomersPage({
                    THEN 'этаж ' || address.floor END
                ) AS address
         FROM public.customer_addresses address
-        WHERE address.user_id = c.id
+        WHERE address.user_id = ANY(c.member_ids)
         ORDER BY address.is_default DESC, address.updated_at DESC, address.id
         LIMIT 1
       ) saved_address ON TRUE
@@ -296,7 +260,7 @@ export default async function AdminCustomersPage({
                ) AS address
         FROM public.orders address_order
         JOIN public.deliveries delivery ON delivery.order_id = address_order.id
-        WHERE address_order.customer_id = c.id
+        WHERE address_order.customer_id = ANY(c.member_ids)
         ORDER BY address_order.created_at DESC, delivery.created_at DESC
         LIMIT 1
       ) delivery_address ON TRUE
@@ -457,10 +421,6 @@ export default async function AdminCustomersPage({
                 </div>
 
                 <dl className="mt-5 grid gap-4 rounded-2xl bg-[#fffaf8] p-4 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs font-bold uppercase tracking-[0.12em] text-[#99817a]">Email</dt>
-                    <dd className="mt-1 text-sm">Не указан</dd>
-                  </div>
                   <div>
                     <dt className="text-xs font-bold uppercase tracking-[0.12em] text-[#99817a]">Дата регистрации</dt>
                     <dd className="mt-1 text-sm">{formatDate(customer.created_at)}</dd>

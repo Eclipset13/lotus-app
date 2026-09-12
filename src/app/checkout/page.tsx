@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizePhone } from "@/lib/phone";
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -99,6 +100,12 @@ export default function CheckoutPage() {
     event.preventDefault();
     if (submitPendingRef.current) return;
 
+    const customerPhone = normalizePhone(form.customerPhone);
+    if (!customerPhone) {
+      setError("Укажите корректный номер телефона Таджикистана: +992 и 9 цифр.");
+      return;
+    }
+
     submitPendingRef.current = true;
     setError("");
     setSubmitting(true);
@@ -117,7 +124,7 @@ export default function CheckoutPage() {
         body: JSON.stringify({
           customer: {
             name: form.customerName,
-            phone: form.customerPhone,
+            phone: customerPhone,
           },
           fulfillmentType: form.fulfillmentType,
           delivery:
