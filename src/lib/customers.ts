@@ -21,7 +21,7 @@ export async function findOrCreateCustomer(client: PoolClient, name: string, pho
   const canonical = normalizePhone(phone);
   if (!canonical) throw new Error("Invalid customer phone");
 
-  // Shared across processes and both checkout endpoints. The following SELECT gets
+  // Shared across checkout processes. The following SELECT gets
   // a fresh snapshot after a competing checkout commits.
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     `customer-phone:${canonical}`,

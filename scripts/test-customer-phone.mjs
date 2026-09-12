@@ -34,15 +34,31 @@ const customers = loadTs(resolve("src/lib/customers.ts"));
 const scope = loadTs(resolve("src/lib/customer-scope.ts"));
 
 test("canonical variants and invalid values", () => {
-  for (const value of ["+992 900 123 456", "992900123456", "900123456", "+992 (900) 123-456"]) {
+  for (const value of ["+992900123456", "+992 900 123 456", "992900123456", "900123456", "+992 (900) 123-456", " (900) 123-456 "]) {
     assert.equal(phone.normalizePhone(value), "+992900123456");
     assert.equal(phone.normalizePhone(phone.normalizePhone(value)), "+992900123456");
   }
   for (const value of ["+992900111222", "992 900 111 222", "(900) 111-222", "+992 (900)-111-222", "900111222"]) {
     assert.equal(phone.normalizePhone(value), "+992900111222");
   }
-  for (const value of [null, 992900111222, "", "123", "9929001112223", "000000000", "992111111111", "099111222", "79990001122"]) {
+  for (const value of ["+992005042828", "992005042828", "005042828", " +992 (005) 042-828 "]) {
+    assert.equal(phone.normalizePhone(value), "+992005042828");
+    assert.equal(phone.normalizePhone(phone.normalizePhone(value)), "+992005042828");
+  }
+  assert.equal(phone.normalizePhone("099111222"), "+992099111222");
+  assert.equal(phone.normalizePhone("+992090123456"), "+992090123456");
+  for (const value of [null, 992900111222, "", "123", "9929001112223", "000000000", "992111111111", "79990001122", "+99200504282", "+9920050428280"]) {
     assert.equal(phone.normalizePhone(value), null);
+  }
+  for (const value of [
+    "abc900123456xyz", "++992900123456", "992+900123456", "900123456+",
+    "(+992)900123456", "+900123456", "+79990001122",
+    "abc005042828xyz", "++992005042828", "992+005042828", "005042828+",
+    ...["/", "_", ".", "@", "#", "!", ":", "\\", "🌷"].map((symbol) => `900${symbol}123456`),
+    ...Array.from({ length: 10 }, (_, digit) => String(digit).repeat(9))
+      .flatMap((national) => [national, `992${national}`, `+992${national}`]),
+  ]) {
+    assert.equal(phone.normalizePhone(value), null, value);
   }
 });
 

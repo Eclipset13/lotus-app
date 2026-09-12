@@ -106,6 +106,14 @@ export default function CheckoutPage() {
       return;
     }
 
+    const recipientPhone = form.recipientPhone.trim()
+      ? normalizePhone(form.recipientPhone)
+      : customerPhone;
+    if (form.fulfillmentType === "delivery" && !recipientPhone) {
+      setError("Проверьте телефон получателя");
+      return;
+    }
+
     submitPendingRef.current = true;
     setError("");
     setSubmitting(true);
@@ -131,7 +139,7 @@ export default function CheckoutPage() {
             form.fulfillmentType === "delivery"
               ? {
                   recipientName: form.recipientName,
-                  recipientPhone: form.recipientPhone,
+                  recipientPhone,
                   streetAddress: form.streetAddress,
                   apartment: form.apartment,
                   entrance: form.entrance,
