@@ -283,11 +283,11 @@ export async function updateConstructorKind(
     }
     console.error("updateConstructorKind failed:", error);
     return {
-      error: "Не удалось сохранить связь с 3D-конструктором",
+      error: "Не удалось сохранить связь со старым конструктором",
       message: "",
     };
   }
 
   revalidateInventory(flowerId);
-  return { error: "", message: "Связь с 3D-конструктором сохранена" };
+  return { error: "", message: "Связь со старым конструктором сохранена" };
 }

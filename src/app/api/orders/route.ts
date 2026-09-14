@@ -2,6 +2,7 @@ import { normalizePhone } from "@/lib/phone";
 import { findOrCreateCustomer, CustomerPhoneConflictError } from "@/lib/customers";
 import { db } from "@/lib/db";
 import type { PoolClient } from "pg";
+import { loadConstructorStock, verifyCustomBouquet, checkCartFlowerAvailability, BouquetAvailabilityError } from "@/lib/constructor-stock";
 import {
   calculateCustomBouquetPrice,
   createCustomBouquetSummary,
@@ -376,6 +377,23 @@ export async function POST(request: Request) {
       snapshotsByBouquet.set(bouquet.id, snapshot);
     }
 
+    const stock = await loadConstructorStock(client);
+    const requirements = new Map<string, number>();
+    const addRequirement = (id: string, quantity: number) =>
+      requirements.set(id, (requirements.get(id) ?? 0) + quantity);
+    for (const [id, item] of catalogItems) {
+      for (const flower of snapshotsByBouquet.get(id)!.flowers) {
+        addRequirement(flower.flowerId, flower.quantity * item.quantity);
+      }
+    }
+    for (const item of customBouquets) {
+      item.configuration = verifyCustomBouquet(item.configuration, stock.flowers, stock.legacyLinks);
+      for (const flower of item.configuration.flowers) addRequirement(flower.flowerId!, item.quantity);
+    }
+    // Checkout checks the whole cart but neither reserves nor changes stock.
+    // Confirmation performs the existing locked check again.
+    checkCartFlowerAvailability(requirements, stock.flowers);
+
     let subtotalInDirams = 0;
 
     let priceAdjusted = false;
@@ -603,6 +621,9 @@ export async function POST(request: Request) {
       } catch (rollbackError) {
         console.error("POST /api/orders rollback failed:", rollbackError);
       }
+    }
+    if (error instanceof BouquetAvailabilityError) {
+      return Response.json({ success: false, message: error.message }, { status: 400 });
     }
     if (error instanceof OrderRateLimitError) {
       return Response.json(

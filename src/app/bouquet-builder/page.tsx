@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 import { BouquetConstructorLoader } from "@/components/bouquet-constructor-loader";
+import { loadConstructorStock } from "@/lib/constructor-stock";
+
+export const dynamic = "force-dynamic";
 
 export default async function ConstructorPage({
   searchParams,
@@ -8,6 +11,7 @@ export default async function ConstructorPage({
   searchParams: Promise<{ edit?: string }>;
 }) {
   const editCartItemId = (await searchParams).edit;
+  const stock = await loadConstructorStock();
 
   return (
     <main className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-[#fffaf8] text-[#342622]">
@@ -25,7 +29,7 @@ export default async function ConstructorPage({
       </header>
 
       <section className="min-h-0 w-full flex-1">
-        <BouquetConstructorLoader editCartItemId={editCartItemId} />
+        <BouquetConstructorLoader editCartItemId={editCartItemId} {...stock} />
       </section>
     </main>
   );

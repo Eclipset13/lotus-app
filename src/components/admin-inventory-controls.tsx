@@ -206,20 +206,20 @@ export function AdminInventoryControls({
       </section>
 
       <section className="rounded-[28px] border border-[#f0dfd9] bg-white p-6 lg:col-span-2">
-        <h2 className="font-serif text-2xl">Связь с 3D-конструктором</h2>
+        <h2 className="font-serif text-2xl">Связь со старым конструктором</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#806e68]">
-          Внутренний ключ нужен только для расчёта складской потребности
-          авторских букетов. Внешний вид конструктора он не изменяет.
+          Связь нужна для старых композиций и их перевода на складские позиции.
+          Новым композициям она не нужна: они сохраняют ID конкретного цветка.
         </p>
 
         <form action={submitConstructorKind} className="mt-5 max-w-xl">
           <label className="text-xs font-bold uppercase tracking-[0.14em] text-[#99817a]">
-            Тип цветка в конструкторе
+            Тип цветка в старом конструкторе
             <AdminSelect
               className="mt-2"
               name="constructor_kind"
               defaultValue={constructorKind ?? ""}
-              ariaLabel="Выбрать тип цветка в 3D-конструкторе"
+              ariaLabel="Связь со старым конструктором"
               options={[
                 { value: "", label: "Не используется" },
                 { value: "rose", label: "Роза" },

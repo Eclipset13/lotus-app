@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { PublicFlower, LegacyFlowerLinks } from "@/lib/bouquet";
 
 const BouquetConstructor = dynamic(
   () =>
@@ -25,12 +26,16 @@ const BouquetConstructor = dynamic(
 
 export function BouquetConstructorLoader({
   editCartItemId,
+  flowers,
+  legacyLinks,
 }: {
   editCartItemId?: string;
+  flowers: PublicFlower[];
+  legacyLinks: LegacyFlowerLinks;
 }) {
   return (
     <div className="h-full min-h-0 w-full">
-      <BouquetConstructor editCartItemId={editCartItemId} />
+      <BouquetConstructor editCartItemId={editCartItemId} stockFlowers={flowers} legacyLinks={legacyLinks} />
     </div>
   );
 }

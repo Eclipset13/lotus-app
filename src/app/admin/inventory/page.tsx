@@ -369,7 +369,7 @@ export default async function AdminInventoryPage({
                                 <span>{flower.is_active ? "Активен" : "Неактивен"}</span>
                                 {flower.constructor_kind && (
                                   <span className="rounded-full bg-[#fbe5e8] px-2 py-0.5 font-semibold text-[#9d4255]">
-                                    3D: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
+                                    Старый конструктор: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
                                   </span>
                                 )}
                               </div>

@@ -16,7 +16,7 @@ const VIEWBOX_SIZE = 200;
 const CENTER = VIEWBOX_SIZE / 2;
 const MAP_RADIUS = 78;
 
-const MARKER_COLORS: Record<FlowerInstance["kind"], string> = {
+const MARKER_COLORS: Record<NonNullable<FlowerInstance["kind"]>, string> = {
   rose: "#d98291",
   peony: "#efb7c2",
   tulip: "#f5d7c9",
@@ -302,7 +302,7 @@ export function BouquetTopViewMap({
               transform={`translate(${markerX} ${markerY})`}
               className={readonly ? "cursor-default" : dragged ? "cursor-grabbing" : "cursor-grab"}
               role={readonly ? undefined : "button"}
-              aria-label={readonly ? undefined : `Выбрать цветок ${index + 1}`}
+              aria-label={readonly ? undefined : `Выбрать ${flower.snapshot?.name ?? "цветок"} ${index + 1}`}
               tabIndex={readonly ? undefined : 0}
               onKeyDown={(event) => {
                 if (readonly) return;
@@ -325,6 +325,7 @@ export function BouquetTopViewMap({
                 onDragStart?.();
               }}
             >
+              <title>{flower.snapshot?.name ?? flower.kind ?? `Цветок №${flower.flowerId}`} · {index + 1}</title>
               {selected && (
                 <circle
                   r="14"
@@ -336,7 +337,7 @@ export function BouquetTopViewMap({
               )}
               <circle
                 r={dragged ? 10.5 : 9.5}
-                fill={MARKER_COLORS[flower.kind]}
+                fill={flower.kind ? MARKER_COLORS[flower.kind] : "#806e68"}
                 stroke={selected ? "#8f4052" : "#ffffff"}
                 strokeWidth={selected ? 2.4 : 1.8}
                 className="transition-[r]"

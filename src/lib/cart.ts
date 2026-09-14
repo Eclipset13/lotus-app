@@ -33,6 +33,35 @@ export type CustomBouquetCartItem = {
 
 export type CartItem = CatalogCartItem | CustomBouquetCartItem;
 
+export function addCatalogBouquetToCart(
+  items: CartItem[],
+  bouquet: { id: string; name: string; sale_price: string },
+): CartItem[] {
+  const existing = items.find(
+    (item) => item.itemType === "catalog-bouquet" && item.productId === bouquet.id,
+  );
+  if (existing) {
+    return items.map((item) =>
+      item.itemType === "catalog-bouquet" && item.id === existing.id
+        ? {
+            ...item,
+            name: bouquet.name,
+            unitPrice: Number(bouquet.sale_price),
+            quantity: Math.min(CART_ITEM_MAX_QUANTITY, item.quantity + 1),
+          }
+        : item,
+    );
+  }
+  return [...items, {
+    id: `catalog-bouquet-${bouquet.id}`,
+    itemType: "catalog-bouquet",
+    productId: bouquet.id,
+    name: bouquet.name,
+    unitPrice: Number(bouquet.sale_price),
+    quantity: 1,
+  }];
+}
+
 export type CartReadResult = {
   items: CartItem[];
   priceAdjusted: boolean;
@@ -96,10 +125,12 @@ export function sanitizeCartItems(value: unknown): CartItem[] {
         itemType: "custom-bouquet",
         name: "Авторский букет",
         quantity,
-        unitPrice: calculateCustomBouquetPrice(configuration),
+        unitPrice: Number.isFinite(Number(candidate.unitPrice)) && Number(candidate.unitPrice) >= 0
+          ? Number(candidate.unitPrice)
+          : calculateCustomBouquetPrice(configuration),
         configuration,
         summary: createCustomBouquetSummary(configuration),
-        thumbnail: sanitizeThumbnail(candidate.thumbnail),
+        thumbnail: configuration.schemaVersion === 2 ? undefined : sanitizeThumbnail(candidate.thumbnail),
         createdAt,
         updatedAt,
       });

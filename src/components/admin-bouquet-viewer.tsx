@@ -63,7 +63,7 @@ export function AdminBouquetViewerProvider({
   const openViewer = useCallback(
     (selection: ViewerSelection, trigger: HTMLButtonElement) => {
       triggerRef.current = trigger;
-      setViewMode("3d");
+      setViewMode(selection.configuration.schemaVersion === 2 ? "top" : "3d");
       setActive(selection);
     },
     [],

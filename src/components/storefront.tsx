@@ -3,28 +3,22 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
+import { BouquetImage } from "@/components/bouquet-image";
 import { formatCustomBouquetComposition } from "@/lib/bouquet";
+import type { PublicBouquet } from "@/lib/public-bouquets";
 import {
   CART_ITEM_MAX_QUANTITY,
+  addCatalogBouquetToCart,
   getCartItemLineTotal,
   readCartState,
   writeCartItems,
   type CartItem,
 } from "@/lib/cart";
 
-export type Bouquet = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  sale_price: string;
-  is_featured: boolean;
-};
-
 export default function Storefront({
   bouquets,
 }: {
-  bouquets: Bouquet[];
+  bouquets: PublicBouquet[];
 }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -154,40 +148,8 @@ export default function Storefront({
     [cart]
   );
 
-  function addToCart(bouquet: Bouquet) {
-    setCart((currentCart) => {
-      const existingItem = currentCart.find(
-        (item) =>
-          item.itemType === "catalog-bouquet" &&
-          item.productId === bouquet.id
-      );
-
-      if (existingItem) {
-        return currentCart.map((item) =>
-          item.id === existingItem.id
-            ? {
-                ...item,
-                quantity: Math.min(
-                  CART_ITEM_MAX_QUANTITY,
-                  item.quantity + 1
-                ),
-              }
-            : item
-        );
-      }
-
-      return [
-        ...currentCart,
-        {
-          id: `catalog-bouquet-${bouquet.id}`,
-          itemType: "catalog-bouquet",
-          productId: bouquet.id,
-          name: bouquet.name,
-          unitPrice: Number(bouquet.sale_price),
-          quantity: 1,
-        },
-      ];
-    });
+  function addToCart(bouquet: PublicBouquet) {
+    setCart((currentCart) => addCatalogBouquetToCart(currentCart, bouquet));
 
     setCartOpen(true);
   }
@@ -285,16 +247,9 @@ export default function Storefront({
           {bouquets.map((bouquet, index) => (
             <article className="bouquetCard" key={bouquet.id}>
               <div
-                className={`bouquetImage bouquetImage${(index % 3) + 1
-                  }`}
+                className={`bouquetImage bouquetImage${(index % 3) + 1} overflow-hidden`}
               >
-                <span>
-                  {index % 3 === 0
-                    ? "🌸"
-                    : index % 3 === 1
-                      ? "🌷"
-                      : "🌹"}
-                </span>
+                <BouquetImage src={bouquet.image_url} name={bouquet.name} />
 
                 {bouquet.is_featured && (
                   <div className="badge">Популярное</div>
@@ -314,6 +269,8 @@ export default function Storefront({
                   </strong>
 
                   <button
+                    type="button"
+                    disabled={!cartLoaded}
                     onClick={() => addToCart(bouquet)}
                     aria-label={`Добавить ${bouquet.name} в корзину`}
                   >
@@ -407,6 +364,7 @@ export default function Storefront({
                         {item.itemType === "custom-bouquet" ? (
                           <div className="customBouquetDetails">
                             <p>{formatCustomBouquetComposition(item.summary)}</p>
+                            {item.configuration.schemaVersion === 2 && <p>3D-модель этого цветка пока не добавлена. Расположение доступно в редакторе на карте.</p>}
                             <p>Упаковка: {item.summary.wrappingName}</p>
                             <p>{item.unitPrice.toLocaleString("ru-RU")} сом за букет</p>
                             <Link

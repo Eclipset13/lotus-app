@@ -1,18 +1,11 @@
 import Link from "next/link";
-import Image from "next/image";
-import { db } from "@/lib/db";
+import { BouquetImage } from "@/components/bouquet-image";
+import { loadPublicBouquets } from "@/lib/public-bouquets";
+import { CatalogCartButton } from "@/components/catalog-cart-button";
 import { BrandLogo } from "@/components/brand-logo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-type Product = {
-  id: string;
-  name: string;
-  description: string | null;
-  price: string;
-  image_url: string | null;
-};
 
 function formatMoney(value: string) {
   return (
@@ -22,19 +15,7 @@ function formatMoney(value: string) {
 }
 
 export default async function CatalogPage() {
-  const result = await db.query<Product>(`
-    SELECT
-      id::text,
-      name,
-      description,
-      price::text,
-      image_url
-    FROM products
-    WHERE is_active = TRUE
-    ORDER BY created_at DESC
-  `);
-
-  const products = result.rows;
+  const products = await loadPublicBouquets();
 
   return (
     <main className="min-h-screen bg-[#fffaf8] text-[#342622]">
@@ -42,12 +23,20 @@ export default async function CatalogPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <BrandLogo />
 
-          <Link
-            href="/"
-            className="rounded-full border border-[#ead8d1] px-5 py-2.5 text-sm font-semibold text-[#806e68] transition hover:bg-[#fff4f1]"
-          >
-            На главную
-          </Link>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Link
+              href="/"
+              className="rounded-full border border-[#ead8d1] px-5 py-2.5 text-sm font-semibold text-[#806e68] transition hover:bg-[#fff4f1]"
+            >
+              На главную
+            </Link>
+            <Link
+              href="/?cart=open"
+              className="rounded-full bg-[#342622] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#c97d72]"
+            >
+              Корзина
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -86,21 +75,9 @@ export default async function CatalogPage() {
                 key={product.id}
                 className="group overflow-hidden rounded-[30px] border border-[#f0dfd9] bg-white shadow-[0_12px_40px_rgba(74,48,41,0.05)] transition duration-300 hover:-translate-y-1.5 hover:shadow-[0_24px_60px_rgba(74,48,41,0.11)]"
               >
-                <div className="aspect-[4/5] overflow-hidden bg-[#f8ece8]">
-                  {product.image_url ? (
-                    <Image
-                      src={product.image_url}
-                      alt={product.name}
-                      width={800}
-                      height={1000}
-                      unoptimized
-                      className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center">
-                      <span className="text-7xl">🌸</span>
-                    </div>
-                  )}
+                <div className="relative aspect-[4/5] overflow-hidden bg-[#f8ece8]">
+                  <BouquetImage src={product.image_url} name={product.name} />
+                  {product.is_featured && <div className="badge">Популярное</div>}
                 </div>
 
                 <div className="p-6">
@@ -110,7 +87,7 @@ export default async function CatalogPage() {
                     </h2>
 
                     <strong className="shrink-0 text-sm text-[#b66f65]">
-                      {formatMoney(product.price)}
+                      {formatMoney(product.sale_price)}
                     </strong>
                   </div>
 
@@ -119,12 +96,11 @@ export default async function CatalogPage() {
                       "Нежный букет из свежих цветов."}
                   </p>
 
-                  <Link
-                    href={`/catalog/${product.id}`}
-                    className="mt-6 flex h-12 w-full items-center justify-center rounded-2xl bg-[#342622] text-sm font-semibold text-white transition hover:bg-[#c97d72]"
-                  >
-                    Посмотреть букет
-                  </Link>
+                  <CatalogCartButton bouquet={{
+                    id: product.id,
+                    name: product.name,
+                    sale_price: product.sale_price,
+                  }} />
                 </div>
               </article>
             ))}

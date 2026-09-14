@@ -202,6 +202,7 @@ export async function createProduct(
 
   revalidatePath("/admin/products");
   revalidatePath("/");
+  revalidatePath("/catalog");
   redirect("/admin/products");
 }
 
@@ -263,6 +264,7 @@ export async function updateProduct(
 
   revalidatePath("/admin/products");
   revalidatePath("/");
+  revalidatePath("/catalog");
   redirect("/admin/products");
 }
 
@@ -292,4 +294,5 @@ export async function toggleProductVisibility(productId: string) {
 
   revalidatePath("/admin/products");
   revalidatePath("/");
+  revalidatePath("/catalog");
 }

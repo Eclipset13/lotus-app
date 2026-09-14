@@ -29,7 +29,7 @@ const STEM_BOTTOM_OFFSET = 3.05;
 const EPSILON = 0.0001;
 const COLLISION_SAFETY = 0.003;
 
-export function getFlowerCollisionRadius(kind: FlowerKind): number {
+export function getFlowerCollisionRadius(kind?: FlowerKind): number {
   switch (kind) {
     case "peony":
       return 0.28;
@@ -44,7 +44,7 @@ export function getFlowerCollisionRadius(kind: FlowerKind): number {
 // The procedural meshes are slightly wider than their collision circles.
 // This conservative visual envelope keeps every petal inside the wrapping,
 // including tall tulip petals after the flower is tilted.
-export function getFlowerBoundaryRadius(kind: FlowerKind): number {
+export function getFlowerBoundaryRadius(kind?: FlowerKind): number {
   switch (kind) {
     case "peony":
       return 0.45;

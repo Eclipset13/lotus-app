@@ -18,12 +18,16 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
+import { BouquetImage } from "@/components/bouquet-image";
 import { BouquetTopViewMap } from "@/components/bouquet-top-view-map";
 import { BouquetVisualScene } from "@/components/bouquet/bouquet-visual-scene";
 import {
     calculateCustomBouquetPrice,
     createCustomBouquetSummary,
-    CUSTOM_BOUQUET_FLOWERS,
+    flowerSnapshot,
+    formatCustomBouquetComposition,
+    type PublicFlower,
+    type LegacyFlowerLinks,
     CUSTOM_BOUQUET_WRAPPINGS,
     MAX_CUSTOM_BOUQUET_FLOWERS,
     sanitizeCustomBouquetConfig,
@@ -47,7 +51,6 @@ import {
     type Vector3,
 } from "@/lib/bouquet-layout";
 
-const FLOWERS = CUSTOM_BOUQUET_FLOWERS;
 const WRAPPINGS = CUSTOM_BOUQUET_WRAPPINGS;
 const MAX_FLOWERS = MAX_CUSTOM_BOUQUET_FLOWERS;
 const AUTO_COMPOSITION_HEIGHT_OFFSET = -0.21;
@@ -64,7 +67,7 @@ type CartSavePhase = "thumbnail" | "saving" | null;
 function getPlacement(
     index: number,
     bouquetRadius: number,
-    kind: FlowerKind
+    kind?: FlowerKind
 ) {
     const angle =
         index * Math.PI * (3 - Math.sqrt(5));
@@ -206,10 +209,9 @@ function createBouquetConfiguration(
     wrappingKind: WrappingKind
 ): CustomBouquetConfig {
     return {
-        schemaVersion: 1,
+        schemaVersion: flowers.every((flower) => flower.flowerId) ? 2 : 1,
         flowers: flowers.map((flower) => ({
-            id: flower.id,
-            kind: flower.kind,
+            ...flower,
             position: [...flower.position],
             rotation: [...flower.rotation],
         })),
@@ -219,10 +221,15 @@ function createBouquetConfiguration(
 
 export function BouquetConstructor({
     editCartItemId,
+    stockFlowers,
+    legacyLinks,
 }: {
     editCartItemId?: string;
+    stockFlowers: PublicFlower[];
+    legacyLinks: LegacyFlowerLinks;
 }) {
     const router = useRouter();
+    const [search, setSearch] = useState("");
     const [flowers, setFlowers] = useState<
         FlowerInstance[]
     >([]);
@@ -252,6 +259,7 @@ export function BouquetConstructor({
 
     const [previewUrl, setPreviewUrl] =
         useState<string | null>(null);
+    const [mapPreviewOpen, setMapPreviewOpen] = useState(false);
 
     const [previewError, setPreviewError] =
         useState<string | null>(null);
@@ -367,24 +375,23 @@ export function BouquetConstructor({
         configuration: CustomBouquetConfig
     ) => {
         replaceFlowers(
-            configuration.flowers.map((flower) => ({
-                ...flower,
-                position: [...flower.position],
-                rotation: [...flower.rotation],
-            }))
+            configuration.flowers.map((flower) => {
+                const flowerId = configuration.schemaVersion === 2 ? flower.flowerId : flower.kind && legacyLinks[flower.kind];
+                const stock = stockFlowers.find((item) => item.id === flowerId);
+                return {
+                    ...(flowerId ? { id: flower.id, flowerId, snapshot: stock ? flowerSnapshot(stock) : flower.snapshot } : flower),
+                    position: [...flower.position] as Vector3,
+                    rotation: [...flower.rotation] as Vector3,
+                };
+            })
         );
         setWrappingKind(configuration.wrappingKind);
         setSelectedId(null);
         cancelContinuousEdit();
         historyRef.current = { past: [], future: [] };
         updateHistoryStatus();
-    }, [
-        cancelContinuousEdit,
-        replaceFlowers,
-        setSelectedId,
-        setWrappingKind,
-        updateHistoryStatus,
-    ]);
+    }, [cancelContinuousEdit, replaceFlowers, setSelectedId, setWrappingKind,
+        updateHistoryStatus, stockFlowers, legacyLinks]);
 
     useEffect(() => {
         if (storageInitializationRef.current) return;
@@ -534,10 +541,7 @@ export function BouquetConstructor({
     );
 
     const selectedOption = selectedFlower
-        ? FLOWERS.find(
-            (option) =>
-                option.kind === selectedFlower.kind
-        )
+        ? { name: selectedFlower.snapshot?.name ?? `Цветок ${selectedFlower.kind ?? selectedFlower.flowerId ?? "без связи"}` }
         : undefined;
 
     const changeSelectedHeight = (
@@ -679,8 +683,9 @@ export function BouquetConstructor({
         setSelectedId,
     ]);
 
-    const addFlower = (kind: FlowerKind) => {
-        if (flowersRef.current.length >= MAX_FLOWERS) {
+    const addFlower = (option: PublicFlower) => {
+        if (flowersRef.current.length >= MAX_FLOWERS ||
+            flowersRef.current.filter((flower) => flower.flowerId === option.id).length >= option.availableQuantity) {
             return;
         }
 
@@ -693,7 +698,8 @@ export function BouquetConstructor({
 
             const draft: FlowerInstance = {
                 id,
-                kind,
+                flowerId: option.id,
+                snapshot: flowerSnapshot(option),
                 position: [0, 0, 0],
                 rotation: [0, 0, 0],
             };
@@ -708,7 +714,7 @@ export function BouquetConstructor({
                     ...getPlacement(
                         current.length,
                         bouquetRadius,
-                        kind
+                        undefined
                     ),
                 },
             ];
@@ -853,6 +859,7 @@ export function BouquetConstructor({
     const closePreview = useCallback(() => {
         releasePreviewUrl();
         setPreviewUrl(null);
+        setMapPreviewOpen(false);
         window.requestAnimationFrame(() => previewButtonRef.current?.focus());
     }, [releasePreviewUrl, setPreviewUrl]);
 
@@ -865,6 +872,11 @@ export function BouquetConstructor({
             return;
         }
 
+        if (flowersRef.current.some((flower) => !flower.kind)) {
+            setPreviewError(null);
+            setMapPreviewOpen(true);
+            return;
+        }
         if (!renderStateRef.current) {
             setPreviewError(
                 "3D-сцена ещё загружается. Попробуйте через секунду."
@@ -934,11 +946,22 @@ export function BouquetConstructor({
             createBouquetConfiguration(flowersRef.current, wrappingKind)
         );
 
-        if (!configuration) {
+        if (!configuration || configuration.schemaVersion !== 2) {
             setCartActionMessage(
-                "Проверьте композицию: букет должен содержать от 1 до 21 цветка."
+                "Выберите складскую позицию для каждого цветка. Букет должен содержать от 1 до 21 цветка."
             );
             return;
+        }
+
+        const copies = readCartItems().find((item) => item.id === editingItemId)?.quantity ?? 1;
+        const counts = new Map<string, number>();
+        for (const flower of configuration.flowers) counts.set(flower.flowerId!, (counts.get(flower.flowerId!) ?? 0) + copies);
+        for (const [id, count] of counts) {
+            const stock = stockFlowers.find((item) => item.id === id);
+            if (!stock || count > stock.availableQuantity) {
+                setCartActionMessage(`Недостаточно цветов: ${stock?.name ?? id}. Уменьшите количество или выберите другую позицию.`);
+                return;
+            }
         }
 
         cartSavePendingRef.current = true;
@@ -960,7 +983,7 @@ export function BouquetConstructor({
             try {
                 const renderState = renderStateRef.current;
 
-                if (renderState) {
+                if (renderState && !configuration.flowers.some((flower) => !flower.kind)) {
                     thumbnail = await createCartThumbnail(
                         renderState.gl,
                         renderState.scene,
@@ -994,7 +1017,7 @@ export function BouquetConstructor({
                     unitPrice,
                     configuration,
                     summary,
-                    thumbnail: thumbnail ?? existing.thumbnail,
+                    thumbnail,
                     updatedAt: now,
                 };
 
@@ -1025,7 +1048,7 @@ export function BouquetConstructor({
                 window.localStorage.removeItem(BOUQUET_DRAFT_KEY);
             }
 
-            const thumbnailNotice = thumbnail ? "" : "&preview=missing";
+            const thumbnailNotice = configuration.schemaVersion === 2 ? "" : thumbnail ? "" : "&preview=missing";
             router.push(`/?cart=open&notice=${notice}${thumbnailNotice}`);
         } catch (error) {
             setSelectedId(selectedBeforeSave);
@@ -1049,6 +1072,7 @@ export function BouquetConstructor({
         setCartSavePhase,
         setSelectedId,
         wrappingKind,
+        stockFlowers,
     ]);
 
     useEffect(() => {
@@ -1064,7 +1088,7 @@ export function BouquetConstructor({
     }, [releasePreviewUrl]);
 
     useEffect(() => {
-        if (!previewUrl) {
+        if (!previewUrl && !mapPreviewOpen) {
             return;
         }
 
@@ -1113,7 +1137,7 @@ export function BouquetConstructor({
             document.body.style.overflow = previousOverflow;
             document.removeEventListener("keydown", keepFocusInside);
         };
-    }, [closePreview, previewUrl]);
+    }, [closePreview, previewUrl, mapPreviewOpen]);
 
     useEffect(() => {
         if (clearDialogOpen) {
@@ -1123,7 +1147,7 @@ export function BouquetConstructor({
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
-            if (previewUrl) {
+            if (previewUrl || mapPreviewOpen) {
                 return;
             }
 
@@ -1174,6 +1198,7 @@ export function BouquetConstructor({
         deleteSelectedFlower,
         redo,
         previewUrl,
+        mapPreviewOpen,
         selectedId,
         undo,
     ]);
@@ -1181,7 +1206,7 @@ export function BouquetConstructor({
     const currentConfiguration = sanitizeCustomBouquetConfig(
         createBouquetConfiguration(flowers, wrappingKind)
     );
-    const total = currentConfiguration
+    const total = currentConfiguration && currentConfiguration.flowers.every((flower) => flower.snapshot)
         ? calculateCustomBouquetPrice(currentConfiguration)
         : 0;
     const flowerTotal = total
@@ -1228,59 +1253,61 @@ export function BouquetConstructor({
                     </p>
                 )}
 
-                <div className="mt-6 space-y-3">
-                    {FLOWERS.map((option) => {
-                        const count = flowers.filter(
-                            (flower) =>
-                                flower.kind === option.kind
-                        ).length;
-
+                <label className="mt-5 block text-sm">
+                    Поиск по названию
+                    <input value={search} onChange={(event) => setSearch(event.target.value)} type="search"
+                        className="mt-2 w-full rounded-xl border border-[#ead8d1] p-3" />
+                </label>
+                <div className="mt-4 max-h-80 space-y-3 overflow-y-auto">
+                    {stockFlowers.filter((option) => option.name.toLocaleLowerCase("ru").includes(search.toLocaleLowerCase("ru"))).map((option) => {
+                        const count = flowers.filter((flower) => flower.flowerId === option.id).length;
                         return (
-                            <button
-                                key={option.kind}
-                                type="button"
-                                onClick={() =>
-                                    addFlower(option.kind)
-                                }
-                                disabled={
-                                    flowers.length >= MAX_FLOWERS
-                                }
-                                className="group flex w-full items-center gap-4 rounded-[22px] border border-[#efdfda] bg-[#fffaf8] p-3.5 text-left transition hover:-translate-y-0.5 hover:border-[#dfa9a0] hover:bg-white hover:shadow-[0_10px_30px_rgba(74,48,41,0.08)] disabled:cursor-not-allowed disabled:opacity-45"
-                            >
-                                <span
-                                    className="grid h-12 w-12 shrink-0 place-items-center rounded-full"
-                                    style={{
-                                        backgroundColor:
-                                            `${option.color}38`,
-                                    }}
-                                >
-                                    <span
-                                        className="h-5 w-5 rounded-full shadow-[0_0_0_7px_rgba(255,255,255,0.45)]"
-                                        style={{
-                                            backgroundColor:
-                                                option.color,
-                                        }}
-                                    />
+                            <button key={option.id} type="button" onClick={() => addFlower(option)}
+                                disabled={flowers.length >= MAX_FLOWERS || count >= option.availableQuantity}
+                                className="group flex w-full items-center gap-4 rounded-[22px] border border-[#efdfda] bg-[#fffaf8] p-3.5 text-left transition hover:border-[#dfa9a0] hover:bg-white disabled:cursor-not-allowed disabled:opacity-45">
+                                <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-[#f7e9e4]">
+                                    <BouquetImage src={option.imageUrl} name={option.name} />
                                 </span>
-
                                 <span className="min-w-0 flex-1">
-                                    <span className="block text-sm font-semibold">
-                                        {option.name}
-                                    </span>
-
+                                    <span className="block text-sm font-semibold">{option.name}</span>
                                     <span className="mt-0.5 block text-xs text-[#98827c]">
-                                        {option.subtitle} ·{" "}
-                                        {money(option.price)}
+                                        {money(option.salePrice)} · {option.availableQuantity > 0 ? `Доступно: ${option.availableQuantity}` : "Нет в наличии"}
+                                        {option.color ? ` · ${option.color}` : ""}
                                     </span>
                                 </span>
-
-                                <span className="grid h-9 min-w-9 place-items-center rounded-full bg-white px-2 text-sm font-bold text-[#b85d70] shadow-sm group-hover:bg-[#b85d70] group-hover:text-white">
-                                    {count || "+"}
-                                </span>
+                                <span className="grid h-9 min-w-9 place-items-center rounded-full bg-white px-2 text-sm font-bold text-[#b85d70]">{count || "+"}</span>
                             </button>
                         );
                     })}
+                    {!stockFlowers.length && <p className="text-sm">Сейчас нет активных цветов. Ассортимент скоро пополнится.</p>}
                 </div>
+                {flowers.length > 0 && (
+                    <section className="mt-5 space-y-2 text-sm">
+                        <h4 className="font-semibold">Состав и выбор экземпляра</h4>
+                        <p>3D-модель этого цветка пока не добавлена. Полное расположение показано на карте; цветы можно выбирать, перемещать и удалять.</p>
+                        {currentConfiguration?.schemaVersion === 2 && <p>{formatCustomBouquetComposition(createCustomBouquetSummary(currentConfiguration))}</p>}
+                        {flowers.map((flower, index) => (
+                            <div key={flower.id} className="rounded-xl border border-[#ead8d1] p-2">
+                                <button type="button" onClick={() => setSelectedId(flower.id)} className="w-full text-left" aria-pressed={selectedId === flower.id}>
+                                    {index + 1}. {flower.snapshot?.name ?? `Цветок ${flower.kind ?? flower.flowerId}`}
+                                </button>
+                                {(!flower.flowerId || !stockFlowers.some((stock) => stock.id === flower.flowerId)) && (
+                                    <label className="mt-2 block">Нужно выбрать складскую позицию
+                                        <select value="" className="mt-1 w-full rounded border p-2" onChange={(event) => {
+                                            const stock = stockFlowers.find((item) => item.id === event.target.value);
+                                            if (!stock || flowersRef.current.filter((item) => item.flowerId === stock.id).length >= stock.availableQuantity) return;
+                                            commitFlowerChange((current) => current.map((item) => item.id === flower.id
+                                                ? { id: item.id, flowerId: stock.id, snapshot: flowerSnapshot(stock), position: item.position, rotation: item.rotation } : item));
+                                        }}>
+                                            <option value="">Выберите цветок</option>
+                                            {stockFlowers.map((stock) => <option key={stock.id} value={stock.id} disabled={stock.availableQuantity === 0}>{stock.name}</option>)}
+                                        </select>
+                                    </label>
+                                )}
+                            </div>
+                        ))}
+                    </section>
+                )}
 
                 <div className="mt-7">
                     <div className="flex items-center justify-between">
@@ -1453,7 +1480,7 @@ export function BouquetConstructor({
                             type="button"
                             onClick={saveBouquetToCart}
                             disabled={
-                                !currentConfiguration ||
+                                !currentConfiguration || currentConfiguration.schemaVersion !== 2 ||
                                 isCartSaving ||
                                 isPreparingPreview ||
                                 !storageReady
@@ -1532,7 +1559,7 @@ export function BouquetConstructor({
                         type="button"
                         aria-label="Посмотреть букет"
                         aria-busy={isPreparingPreview}
-                        title="Создать PNG-превью текущего ракурса"
+                        title={flowers.some((flower) => !flower.kind) ? "Открыть схему композиции" : "Создать PNG-превью текущего ракурса"}
                         onClick={captureBouquetPreview}
                         disabled={!flowers.length || isPreparingPreview}
                         className="flex h-11 items-center gap-2 rounded-xl bg-[#342622] px-3 text-xs font-semibold text-white transition hover:bg-[#b85d70] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#b85d70] disabled:cursor-not-allowed disabled:opacity-40 sm:px-4 sm:text-sm"
@@ -1796,7 +1823,7 @@ export function BouquetConstructor({
                 </div>
             )}
 
-            {previewUrl && (
+            {(previewUrl || mapPreviewOpen) && (
                 <div
                     className="fixed inset-0 z-[60] flex items-center justify-center bg-[#241b18]/78 p-3 backdrop-blur-md sm:p-6"
                     onMouseDown={(event) => {
@@ -1815,7 +1842,7 @@ export function BouquetConstructor({
                         <div className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-5 py-4 text-white sm:px-6">
                             <div>
                                 <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#efb7c2]">
-                                    PNG-превью
+                                    {mapPreviewOpen ? "Схема композиции" : "PNG-превью"}
                                 </p>
                                 <h2 id="bouquet-preview-title" className="mt-1 font-serif text-xl sm:text-2xl">
                                     Ваш букет Lotus
@@ -1838,14 +1865,20 @@ export function BouquetConstructor({
 
                         <div className="min-h-0 flex-1 bg-[#201917] p-3 sm:p-5">
                             <div className="relative h-[min(68dvh,760px)] min-h-[260px] w-full overflow-hidden rounded-[18px] bg-[#fff4f1]">
-                                <Image
-                                    src={previewUrl}
+                                {mapPreviewOpen ? (
+                                    <div className="flex h-full flex-col overflow-auto p-4">
+                                        <p className="text-sm">3D-модель этого цветка пока не добавлена. На схеме показаны все экземпляры.</p>
+                                        <div className="min-h-0 flex-1"><BouquetTopViewMap flowers={flowers} bouquetRadius={getBouquetRadius(flowers)} readonly standalone /></div>
+                                        {currentConfiguration && <p className="text-sm">{formatCustomBouquetComposition(createCustomBouquetSummary(currentConfiguration))}</p>}
+                                    </div>
+                                ) : <Image
+                                    src={previewUrl!}
                                     alt="PNG-превью созданного букета"
                                     fill
                                     unoptimized
                                     sizes="100vw"
                                     className="object-contain"
-                                />
+                                />}
                             </div>
                         </div>
 
@@ -1858,13 +1891,13 @@ export function BouquetConstructor({
                                 Вернуться к редактору
                             </button>
 
-                            <a
+                            {previewUrl && <a
                                 href={previewUrl}
                                 download={`lotus-bouquet-${new Date().toISOString().slice(0, 10)}.png`}
                                 className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#d98291] px-6 text-sm font-semibold text-white transition hover:bg-[#c86f82] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#efb7c2]"
                             >
                                 Скачать PNG
-                            </a>
+                            </a>}
                         </div>
                     </div>
                 </div>

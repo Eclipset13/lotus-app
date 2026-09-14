@@ -341,6 +341,8 @@ function AnimatedFlower({
   return (
     <group
       ref={group}
+      name={`flower-instance-${flower.id}`}
+      userData={{ instanceId: flower.id, flowerId: flower.flowerId }}
       position={flower.position}
       scale={0.001}
       onPointerDown={readonly ? undefined : startDragging}
@@ -381,7 +383,7 @@ function AnimatedFlower({
         rotation={flower.rotation}
       >
         <group position={[0, -FLOWER_HEAD_OFFSET, 0]}>
-          <FlowerModel kind={flower.kind} />
+          {flower.kind && <FlowerModel kind={flower.kind} />}
         </group>
       </group>
     </group>

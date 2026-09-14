@@ -99,17 +99,26 @@ async function fixture() {
       CREATE TEMP TABLE roles (id int, code text);
       CREATE TEMP TABLE user_roles (user_id uuid, role_id int);
       CREATE TEMP TABLE bouquets (id bigint, name text, sale_price numeric, is_active boolean);
-      CREATE TEMP TABLE flowers (id bigint, name text, stock_quantity int);
+      CREATE TEMP TABLE flowers (id bigint, name text, stock_quantity int,
+        color text, image_url text, sale_price numeric DEFAULT 18, purchase_price numeric DEFAULT 5,
+        constructor_kind text, is_active boolean DEFAULT true);
+      CREATE TEMP TABLE order_stock_reservations (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, order_id uuid, flower_id bigint,
+        quantity int, status text, consumed_at timestamptz, released_at timestamptz, updated_at timestamptz,
+        UNIQUE(order_id, flower_id)
+      );
       CREATE TEMP TABLE bouquet_items (bouquet_id bigint, flower_id bigint, quantity int);
       CREATE TEMP TABLE orders (
         id uuid DEFAULT gen_random_uuid(), order_number text DEFAULT 'TEST-ORDER',
         customer_id uuid, fulfillment_type text, subtotal numeric, discount_amount numeric,
         delivery_cost numeric, total_amount numeric, customer_comment text,
-        created_at timestamptz DEFAULT now(), status text DEFAULT 'new'
+        created_at timestamptz DEFAULT now(), updated_at timestamptz, status text DEFAULT 'new',
+        confirmed_at timestamptz, completed_at timestamptz, cancelled_at timestamptz
       );
-      CREATE TEMP TABLE order_status_history (order_id uuid, old_status text, new_status text, changed_by uuid, comment text);
+      CREATE TEMP TABLE order_status_history (id bigint GENERATED ALWAYS AS IDENTITY,
+        order_id uuid, old_status text, new_status text, changed_by uuid, comment text);
       CREATE TEMP TABLE order_items (
-        order_id uuid, item_type text, bouquet_id bigint, flower_id bigint, product_name text,
+        id uuid DEFAULT gen_random_uuid(), order_id uuid, item_type text, bouquet_id bigint, flower_id bigint, product_name text,
         quantity int, unit_price numeric, unit_cost numeric, bouquet_composition_snapshot jsonb,
         custom_configuration jsonb, custom_summary jsonb
       );
@@ -119,7 +128,7 @@ async function fixture() {
       );
       CREATE TEMP TABLE payments (order_id uuid, method text, status text, amount numeric);
       INSERT INTO bouquets VALUES (1, 'Розы', 100, true), (9223372036854775807, 'Розы', 100, true);
-      INSERT INTO flowers VALUES (1, 'Роза', 100);
+      INSERT INTO flowers (id, name, stock_quantity, constructor_kind) VALUES (1, 'Роза', 100, 'rose');
       INSERT INTO bouquet_items VALUES (1, 1, 3), (9223372036854775807, 1, 3);
     `);
   } catch (error) {
@@ -130,13 +139,13 @@ async function fixture() {
   const query = (sql, values) => {
     queries.push(sql);
     // Reject any accidental stock/reservation operation and keep all SQL local.
-    assert.doesNotMatch(sql, /reservation|UPDATE\s+(?:public\.)?flowers|stock_movement/i);
+    assert.doesNotMatch(sql, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+(?:public\.)?(?:order_stock_reservations|flowers|stock_movements)\b/i);
     return client.query(sql.replaceAll("public.", "pg_temp."), values);
   };
   const db = { connect: async () => ({ query, release() {} }) };
   const snapshot = async () => {
     const data = {};
-    for (const table of ["users", "orders", "order_items", "payments", "deliveries", "order_status_history", "flowers"]) {
+    for (const table of ["users", "orders", "order_items", "payments", "deliveries", "order_status_history", "flowers", "order_stock_reservations"]) {
       data[table] = (await client.query(`SELECT * FROM pg_temp.${table}`)).rows;
     }
     return data;
@@ -183,9 +192,10 @@ test("recipient normalization and fallback, all cart types, text boundaries and 
     assert.equal(data.order_items.length, 11);
     assert.equal(data.payments.length, 9);
     assert.ok(data.orders.every((order) => order.status === "new"));
-    assert.deepEqual(data.flowers, [{ id: "1", name: "Роза", stock_quantity: 100 }]);
+    assert.equal(data.flowers[0].stock_quantity, 100);
+    assert.equal(data.order_stock_reservations.length, 0);
     assert.ok(data.order_items.filter((item) => item.item_type === "bouquet").every((item) => item.bouquet_composition_snapshot.flowers[0].quantity === 3));
-    assert.ok(data.order_items.filter((item) => item.item_type === "custom_bouquet").every((item) => item.custom_configuration.schemaVersion === 1));
+    assert.ok(data.order_items.filter((item) => item.item_type === "custom_bouquet").every((item) => item.custom_configuration.schemaVersion === 2));
   } finally { await f.client.end(); }
 });
 
@@ -311,4 +321,202 @@ test("overlapping requests for the last slot serialize on real PostgreSQL adviso
     await Promise.all(lockClients.map((client) => client.end()));
     await f.client.end();
   }
+});
+
+function stockConfig(ids) {
+  return { schemaVersion: 2, wrappingKind: "blush", flowers: ids.map((flowerId, index) => ({
+    id: `instance-${index}`, flowerId, position: [index * 0.1, 0, -index * 0.1], rotation: [0, index * 0.2, 0],
+    // Deliberately forged: checkout must replace every public field from PostgreSQL.
+    kind: "rose", snapshot: { name: "Forged", salePrice: 0.01, color: "fake", imageUrl: "/fake.jpg" },
+  })) };
+}
+
+test("v2 identity, geometry and cart round-trip preserve every variety; legacy conversion is explicit", () => {
+  const bouquet = loadTs("src/lib/bouquet.ts");
+  const cart = loadTs("src/lib/cart.ts");
+  const layout = loadTs("src/lib/bouquet-layout.ts");
+  const config = bouquet.sanitizeCustomBouquetConfig(stockConfig(["2", "2", "3"]));
+  assert.equal(config.schemaVersion, 2);
+  assert.equal(config.flowers.length, 3);
+  assert.ok(config.flowers.every((flower) => !flower.kind));
+  const moved = layout.resolveFlowerCollisions(config.flowers, "instance-0", layout.getBouquetRadius(config.flowers));
+  const distributed = layout.generateEvenBouquetLayout(moved, layout.getBouquetRadius(moved));
+  const gathered = layout.alignStemsToAnchor(distributed, layout.getBouquetRadius(distributed));
+  assert.deepEqual(gathered.map((flower) => flower.flowerId), config.flowers.map((flower) => flower.flowerId));
+  assert.ok(gathered.some((flower, index) => JSON.stringify(flower.position) !== JSON.stringify(config.flowers[index].position)));
+  const item = { id: "new", itemType: "custom-bouquet", quantity: 2, unitPrice: 200, configuration: { ...config, flowers: gathered } };
+  const legacy = { id: "old", itemType: "custom-bouquet", quantity: 1, unitPrice: 777, configuration: customItem.configuration };
+  const roundTrip = cart.sanitizeCartItems(JSON.parse(JSON.stringify(cart.sanitizeCartItems([item, legacy]))));
+  assert.equal(roundTrip.length, 2);
+  assert.equal(roundTrip[0].unitPrice, 200);
+  assert.equal(roundTrip[1].unitPrice, 777);
+  assert.equal(roundTrip[1].configuration.schemaVersion, 1);
+  assert.equal(JSON.stringify(roundTrip[0].configuration.flowers), JSON.stringify(gathered));
+  assert.equal(roundTrip[0].summary.flowers.length, 2);
+  assert.equal(bouquet.upgradeLegacyConfiguration(legacy.configuration, {}), null);
+  assert.equal(bouquet.upgradeLegacyConfiguration(legacy.configuration, { rose: "2" }).flowers[0].flowerId, "2");
+  assert.equal(legacy.configuration.schemaVersion, 1);
+  for (const ids of [["0"], ["9223372036854775808"], ["9".repeat(1000)], Array(22).fill("2")]) {
+    assert.equal(bouquet.sanitizeCustomBouquetConfig(stockConfig(ids)), null);
+  }
+  const duplicated = stockConfig(["2", "3"]);
+  duplicated.flowers[1].id = duplicated.flowers[0].id;
+  assert.equal(bouquet.sanitizeCustomBouquetConfig(duplicated), null);
+});
+
+async function installTemporaryLifecycleTriggers(client) {
+  await client.query(`CREATE TEMP TABLE stock_movements (
+    id bigint GENERATED ALWAYS AS IDENTITY, flower_id bigint, order_id uuid,
+    reservation_id bigint UNIQUE, movement_type text, quantity_change int, unit_cost numeric, note text
+  )`);
+  // Copy the real trigger implementations into the temporary schema. Public
+  // functions and tables remain untouched; all referenced writes are qualified.
+  for (const name of ["stock_movements_apply_to_flower", "save_order_status_history"]) {
+    const result = await client.query("SELECT pg_get_functiondef(oid) AS definition FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname=$1 AND pronargs=0", [name]);
+    assert.equal(result.rows.length, 1);
+    const definition = result.rows[0].definition.replaceAll("public.", "pg_temp.")
+      .replace(/UPDATE flowers/g, "UPDATE pg_temp.flowers")
+      .replace(/INSERT INTO order_status_history/g, "INSERT INTO pg_temp.order_status_history");
+    await client.query(definition);
+  }
+  await client.query(`
+    CREATE TRIGGER test_stock AFTER INSERT OR UPDATE OR DELETE ON pg_temp.stock_movements
+      FOR EACH ROW EXECUTE FUNCTION pg_temp.stock_movements_apply_to_flower();
+    CREATE TRIGGER test_history AFTER UPDATE OF status ON pg_temp.orders
+      FOR EACH ROW EXECUTE FUNCTION pg_temp.save_order_status_history();
+  `);
+}
+
+function statusHandler(f) {
+  return loadTs("src/app/api/admin/orders/[id]/status/route.ts", {
+    "@/lib/db": { db: { connect: async () => ({
+      query: (sql, values) => {
+        assert.doesNotMatch(sql, /UPDATE\s+(?:public\.)?flowers\b/i, "Only the stock movement trigger may change physical stock");
+        return f.client.query(sql.replaceAll("public.", "pg_temp."), values);
+      }, release() {},
+    }) } },
+    "@/lib/admin-auth": { isAdminAuthenticated: async () => true },
+    "next/cache": { revalidatePath() {} },
+  }).PATCH;
+}
+const changeStatus = (patch, id, status) => patch(
+  new Request("http://localhost/api/admin/orders/test/status", { method: "PATCH", body: JSON.stringify({ status }) }),
+  { params: Promise.resolve({ id }) },
+);
+
+test("stock assortment, aggregate cart availability, trusted snapshots and exactly-once stock lifecycle", async () => {
+  const f = await fixture();
+  try {
+    await f.client.query(`
+      INSERT INTO pg_temp.flowers (id, name, stock_quantity, sale_price, color, is_active) VALUES
+        (2, 'Хризантема Бакарди', 10, 30, 'Белый', true),
+        (3, 'Хризантема Сантини', 9, 40, 'Жёлтый', true),
+        (4, 'Эустома', 0, 50, 'Белый', true),
+        (5, 'Скрытый сорт', 10, 20, NULL, false),
+        (6, 'Гвоздика', 10, 15, NULL, true);
+      INSERT INTO pg_temp.order_stock_reservations (order_id,flower_id,quantity,status) VALUES
+        ('00000000-0000-0000-0000-000000000001',2,4,'active'),
+        ('00000000-0000-0000-0000-000000000002',2,100,'consumed');
+    `);
+    const stockModule = loadTs("src/lib/constructor-stock.ts", { "@/lib/db": { db: { query: f.query } } });
+    const stock = await stockModule.loadConstructorStock();
+    assert.equal(stock.flowers.length, 5);
+    assert.equal(stock.flowers.find((flower) => flower.id === "2").availableQuantity, 6);
+    assert.equal(stock.flowers.find((flower) => flower.id === "4").availableQuantity, 0);
+    assert.ok(stock.flowers.every((flower) => !Object.keys(flower).some((key) => /purchase|cost|constructor/i.test(key))));
+    const post = checkout(f.db);
+    const body = orderBody();
+    body.fulfillmentType = "pickup";
+    body.items = [{ ...catalogItem, quantity: 2 }, {
+      itemType: "custom-bouquet", quantity: 3, displayedUnitPrice: 0.01,
+      configuration: stockConfig(["1", "1", "2", "3"]),
+    }];
+    await f.client.query("UPDATE pg_temp.flowers SET stock_quantity=11 WHERE id=1");
+    const before = await f.snapshot();
+    assert.equal((await submit(post, body)).status, 400, "6 catalog roses + 6 custom roses exceed 11");
+    assert.deepEqual(await f.snapshot(), before);
+    for (const unavailable of ["4", "5", "99999"]) {
+      const invalid = orderBody();
+      invalid.items = [{ itemType: "custom-bouquet", quantity: 1, configuration: stockConfig([unavailable]) }];
+      assert.equal((await submit(post, invalid)).status, 400);
+      assert.deepEqual(await f.snapshot(), before);
+    }
+    await f.client.query("UPDATE pg_temp.bouquets SET is_active=false WHERE id=1");
+    assert.equal((await submit(post)).status, 400, "Disabled bouquet in an old cart");
+    assert.deepEqual(await f.snapshot(), before);
+    await f.client.query("UPDATE pg_temp.bouquets SET is_active=true WHERE id=1");
+    await f.client.query("UPDATE pg_temp.flowers SET stock_quantity=12 WHERE id=1");
+    const response = await submit(post, body);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.totalAmount, 593);
+    assert.equal(result.priceAdjusted, true);
+    const data = await f.snapshot();
+    const saved = data.order_items.find((item) => item.item_type === "custom_bouquet");
+    assert.equal(saved.custom_configuration.schemaVersion, 2);
+    assert.equal(saved.custom_configuration.flowers[2].snapshot.name, "Хризантема Бакарди");
+    assert.equal(saved.custom_configuration.flowers[2].snapshot.salePrice, 30);
+    assert.deepEqual(saved.custom_configuration.flowers[2].position, body.items[1].configuration.flowers[2].position);
+    assert.ok(saved.custom_configuration.flowers.every((flower) => flower.kind === undefined));
+    assert.equal(saved.custom_summary.flowers.length, 3);
+    assert.equal(data.order_stock_reservations.length, 2, "Checkout creates no reservation");
+    assert.equal(data.flowers.find((flower) => flower.id === "1").stock_quantity, 12);
+    const orderId = data.orders[0].id;
+    await f.client.query("UPDATE pg_temp.flowers SET constructor_kind=NULL WHERE id=1");
+    await f.client.query("UPDATE pg_temp.flowers SET constructor_kind='rose' WHERE id=6");
+    const { getOrderFlowerRequirements } = loadTs("src/lib/order-flower-requirements.ts", { "@/lib/db": { db: { query: f.query } } });
+    const requirements = (await getOrderFlowerRequirements([orderId])).get(orderId);
+    assert.deepEqual(Object.fromEntries(requirements.requirements.map((item) => [item.flowerId, item.requiredQuantity])), { "1": 12, "2": 3, "3": 3 });
+
+    await installTemporaryLifecycleTriggers(f.client);
+    const patch = statusHandler(f);
+    await f.client.query("UPDATE pg_temp.flowers SET stock_quantity=11 WHERE id=1");
+    assert.equal((await changeStatus(patch, orderId, "confirmed")).status, 409, "Confirmation rechecks current availability");
+    assert.equal((await f.snapshot()).order_stock_reservations.length, 2);
+    await f.client.query("UPDATE pg_temp.flowers SET stock_quantity=12 WHERE id=1");
+    assert.equal((await changeStatus(patch, orderId, "confirmed")).status, 200);
+    assert.equal((await f.snapshot()).flowers.find((flower) => flower.id === "1").stock_quantity, 12);
+    assert.equal((await f.snapshot()).order_stock_reservations.filter((row) => row.order_id === orderId).length, 3);
+    assert.equal((await changeStatus(patch, orderId, "preparing")).status, 200);
+    const prepared = await f.snapshot();
+    assert.equal(prepared.flowers.find((flower) => flower.id === "1").stock_quantity, 0);
+    assert.equal(prepared.flowers.find((flower) => flower.id === "2").stock_quantity, 7);
+    assert.equal(prepared.flowers.find((flower) => flower.id === "3").stock_quantity, 6);
+    assert.ok(prepared.order_stock_reservations.filter((row) => row.order_id === orderId).every((row) => row.status === "consumed"));
+    assert.equal((await changeStatus(patch, orderId, "preparing")).status, 200);
+    assert.deepEqual(await f.snapshot(), prepared);
+    assert.equal((await f.client.query("SELECT count(*)::int AS n FROM pg_temp.stock_movements")).rows[0].n, 3);
+  } finally { await f.client.end(); }
+});
+
+test("unlinked legacy carts fail explicitly; saved v1 orders and their active allocations stay intact", async () => {
+  const f = await fixture();
+  try {
+    const post = checkout(f.db);
+    const body = orderBody();
+    body.items = [customItem];
+    await f.client.query("UPDATE pg_temp.flowers SET constructor_kind=NULL");
+    const before = await f.snapshot();
+    const missing = await submit(post, body);
+    assert.equal(missing.status, 400);
+    assert.match((await missing.json()).message, /выбрать складскую позицию/);
+    assert.deepEqual(await f.snapshot(), before);
+
+    const order = (await f.client.query("INSERT INTO pg_temp.orders (fulfillment_type,total_amount,status) VALUES ('pickup',777,'confirmed') RETURNING id")).rows[0];
+    await f.client.query("INSERT INTO pg_temp.order_items (order_id,item_type,product_name,quantity,unit_price,custom_configuration,custom_summary) VALUES ($1,'custom_bouquet','Old',1,777,$2,$3)", [order.id, JSON.stringify(customItem.configuration), JSON.stringify({ totalFlowers: 1, roseCount: 1, peonyCount: 0, tulipCount: 0, wrappingName: "Пудровая" })]);
+    await f.client.query("INSERT INTO pg_temp.order_stock_reservations (order_id,flower_id,quantity,status) VALUES ($1,1,1,'active')", [order.id]);
+    const savedBefore = await f.snapshot();
+    const { getOrderFlowerRequirements } = loadTs("src/lib/order-flower-requirements.ts", { "@/lib/db": { db: { query: f.query } } });
+    const requirements = (await getOrderFlowerRequirements([order.id])).get(order.id);
+    assert.equal(requirements.canCalculate, true);
+    assert.equal(requirements.requirements[0].flowerId, "1");
+    assert.deepEqual(await f.snapshot(), savedBefore);
+    await installTemporaryLifecycleTriggers(f.client);
+    assert.equal((await changeStatus(statusHandler(f), order.id, "preparing")).status, 200);
+    const data = await f.snapshot();
+    assert.equal(data.flowers[0].stock_quantity, 99);
+    assert.equal(data.order_items[0].custom_configuration.schemaVersion, 1);
+    assert.equal(data.order_items[0].unit_price, "777");
+    assert.equal(data.orders[0].total_amount, "777");
+  } finally { await f.client.end(); }
 });

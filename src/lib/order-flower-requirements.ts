@@ -73,6 +73,7 @@ type ConstructorFlowerRow = {
 
 type SnapshotFlowerRow = {
   flower_id: string;
+  flower_name: string;
   stock_quantity: number;
 };
 
@@ -216,6 +217,15 @@ export async function getOrderFlowerRequirements(
   );
 
   const bouquetSnapshots = new Map<string, BouquetCompositionSnapshot | null>();
+  const customConfigurations = new Map(orderItemsResult.rows
+    .filter((item) => item.item_type === "custom_bouquet")
+    .map((item) => [item.id, sanitizeCustomBouquetConfig(item.custom_configuration)]));
+  const reservationsResult = await queryable.query<ReservationRow>(
+    `SELECT order_id::text, flower_id::text, quantity, status
+     FROM public.order_stock_reservations
+     WHERE status = 'active' OR order_id = ANY($1::uuid[])`,
+    [uniqueOrderIds],
+  );
   for (const item of orderItemsResult.rows) {
     if (
       item.item_type === "bouquet" &&
@@ -244,11 +254,14 @@ export async function getOrderFlowerRequirements(
     ...new Set(
       [...bouquetSnapshots.values()].flatMap((snapshot) =>
         snapshot ? snapshot.flowers.map((flower) => flower.flowerId) : [],
+      ).concat(
+        [...customConfigurations.values()].flatMap((config) => config?.schemaVersion === 2 ? config.flowers.map((flower) => flower.flowerId!) : []),
+        reservationsResult.rows.filter((row) => uniqueOrderIds.includes(row.order_id)).map((row) => row.flower_id),
       ),
     ),
   ];
   const hasCustomBouquets = orderItemsResult.rows.some(
-    (item) => item.item_type === "custom_bouquet",
+    (item) => customConfigurations.get(item.id)?.schemaVersion === 1,
   );
 
   const bouquetItemsResult = bouquetIds.length > 0
@@ -280,22 +293,13 @@ export async function getOrderFlowerRequirements(
   const snapshotFlowersResult = snapshotFlowerIds.length > 0
     ? await queryable.query<SnapshotFlowerRow>(
         `
-          SELECT id::text AS flower_id, stock_quantity
+          SELECT id::text AS flower_id, name AS flower_name, stock_quantity
           FROM public.flowers
           WHERE id = ANY($1::bigint[])
         `,
         [snapshotFlowerIds],
       )
     : { rows: [] as SnapshotFlowerRow[] };
-  const reservationsResult = await queryable.query<ReservationRow>(
-    `
-      SELECT order_id::text, flower_id::text, quantity, status
-      FROM public.order_stock_reservations
-      WHERE status = 'active'
-         OR order_id = ANY($1::uuid[])
-    `,
-    [uniqueOrderIds],
-  );
 
   const compositionByBouquet = new Map<string, BouquetItemRow[]>();
   for (const item of bouquetItemsResult.rows) {
@@ -452,9 +456,7 @@ export async function getOrderFlowerRequirements(
     }
 
     if (item.item_type === "custom_bouquet") {
-      const configuration = sanitizeCustomBouquetConfig(
-        item.custom_configuration,
-      );
+      const configuration = customConfigurations.get(item.id);
       if (!configuration) {
         console.error("getOrderFlowerRequirements invalid custom bouquet:", {
           orderId: item.order_id,
@@ -466,12 +468,29 @@ export async function getOrderFlowerRequirements(
         continue;
       }
 
+      if (configuration.schemaVersion === 2) {
+        for (const flower of configuration.flowers) {
+          const stockQuantity = snapshotStockByFlower.get(flower.flowerId!);
+          if (stockQuantity === undefined) {
+            order.errors.add(`Цветок №${flower.flowerId} из сохранённого состава не найден`);
+            continue;
+          }
+          addRequirement(order, {
+            flowerId: flower.flowerId!, name: flower.snapshot?.name ?? `Цветок №${flower.flowerId}`, stockQuantity,
+          }, orderItemQuantity);
+        }
+        continue;
+      }
+      // Existing v1 reservations are the recorded allocation, even if a legacy
+      // constructor link has since changed. Do not reinterpret that allocation.
+      if (reservationsByOrder.get(item.order_id)?.some((row) => row.status === "active")) continue;
+
       const counts: Record<FlowerKind, number> = {
         rose: 0,
         peony: 0,
         tulip: 0,
       };
-      for (const flower of configuration.flowers) counts[flower.kind] += 1;
+      for (const flower of configuration.flowers) if (flower.kind) counts[flower.kind] += 1;
       for (const kind of FLOWER_KINDS) {
         if (counts[kind] === 0) continue;
         const stockFlower = flowerByKind.get(kind);
@@ -501,6 +520,15 @@ export async function getOrderFlowerRequirements(
             (activeForOrder.get(reservation.flower_id) ?? 0) +
               Number(reservation.quantity),
           );
+        }
+      }
+      const hasLegacy = orderItemsResult.rows.some((item) => item.order_id === orderId && customConfigurations.get(item.id)?.schemaVersion === 1);
+      if (hasLegacy && activeForOrder.size > 0) {
+        result.quantities = new Map(activeForOrder);
+        for (const [flowerId] of activeForOrder) {
+          const stock = snapshotFlowersResult.rows.find((flower) => flower.flower_id === flowerId);
+          if (!stock) result.errors.add(`Цветок №${flowerId} из резерва не найден`);
+          result.flowers.set(flowerId, { flowerId, name: stock?.flower_name ?? `Цветок №${flowerId}`, stockQuantity: Number(stock?.stock_quantity ?? 0) });
         }
       }
       const requirements = [...result.quantities].map(

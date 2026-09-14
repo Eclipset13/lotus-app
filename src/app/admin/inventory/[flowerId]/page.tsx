@@ -259,7 +259,7 @@ export default async function InventoryFlowerPage({
               </span>
               {flower.constructor_kind && (
                 <span className="rounded-full bg-[#fbe5e8] px-3 py-1.5 text-xs font-semibold text-[#9d4255]">
-                  3D: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
+                  Старый конструктор: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
                 </span>
               )}
             </div>
