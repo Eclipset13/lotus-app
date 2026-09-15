@@ -56,6 +56,15 @@ const MAX_FLOWERS = MAX_CUSTOM_BOUQUET_FLOWERS;
 const AUTO_COMPOSITION_HEIGHT_OFFSET = -0.21;
 const BOUQUET_DRAFT_KEY = "lotus:bouquet-draft:v1";
 
+function modelsReadyForPreview(scene?: Scene): boolean {
+    if (!scene) return false;
+    let ready = true;
+    scene.traverse((object) => {
+        if (object.userData.modelStatus === "loading" || object.userData.modelStatus === "error") ready = false;
+    });
+    return ready;
+}
+
 type BouquetDraft = {
     schemaVersion: 1;
     configuration: CustomBouquetConfig;
@@ -872,7 +881,7 @@ export function BouquetConstructor({
             return;
         }
 
-        if (flowersRef.current.some((flower) => !flower.kind)) {
+        if (flowersRef.current.some((flower) => !flower.kind && !flower.snapshot?.model) || !modelsReadyForPreview(renderStateRef.current?.scene)) {
             setPreviewError(null);
             setMapPreviewOpen(true);
             return;
@@ -983,7 +992,7 @@ export function BouquetConstructor({
             try {
                 const renderState = renderStateRef.current;
 
-                if (renderState && !configuration.flowers.some((flower) => !flower.kind)) {
+                if (renderState && !configuration.flowers.some((flower) => !flower.kind && !flower.snapshot?.model) && modelsReadyForPreview(renderState.scene)) {
                     thumbnail = await createCartThumbnail(
                         renderState.gl,
                         renderState.scene,
@@ -1284,7 +1293,7 @@ export function BouquetConstructor({
                 {flowers.length > 0 && (
                     <section className="mt-5 space-y-2 text-sm">
                         <h4 className="font-semibold">Состав и выбор экземпляра</h4>
-                        <p>3D-модель этого цветка пока не добавлена. Полное расположение показано на карте; цветы можно выбирать, перемещать и удалять.</p>
+                        {flowers.some((flower) => !flower.kind && !flower.snapshot?.model) && <p>3D-модель этого цветка пока не добавлена. Полное расположение показано на карте; цветы можно выбирать, перемещать и удалять.</p>}
                         {currentConfiguration?.schemaVersion === 2 && <p>{formatCustomBouquetComposition(createCustomBouquetSummary(currentConfiguration))}</p>}
                         {flowers.map((flower, index) => (
                             <div key={flower.id} className="rounded-xl border border-[#ead8d1] p-2">
@@ -1559,7 +1568,7 @@ export function BouquetConstructor({
                         type="button"
                         aria-label="Посмотреть букет"
                         aria-busy={isPreparingPreview}
-                        title={flowers.some((flower) => !flower.kind) ? "Открыть схему композиции" : "Создать PNG-превью текущего ракурса"}
+                        title={flowers.some((flower) => !flower.kind && !flower.snapshot?.model) ? "Открыть схему композиции" : "Создать PNG-превью текущего ракурса"}
                         onClick={captureBouquetPreview}
                         disabled={!flowers.length || isPreparingPreview}
                         className="flex h-11 items-center gap-2 rounded-xl bg-[#342622] px-3 text-xs font-semibold text-white transition hover:bg-[#b85d70] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#b85d70] disabled:cursor-not-allowed disabled:opacity-40 sm:px-4 sm:text-sm"
@@ -1867,7 +1876,7 @@ export function BouquetConstructor({
                             <div className="relative h-[min(68dvh,760px)] min-h-[260px] w-full overflow-hidden rounded-[18px] bg-[#fff4f1]">
                                 {mapPreviewOpen ? (
                                     <div className="flex h-full flex-col overflow-auto p-4">
-                                        <p className="text-sm">3D-модель этого цветка пока не добавлена. На схеме показаны все экземпляры.</p>
+                                        <p className="text-sm">{flowers.some((flower) => !flower.kind && !flower.snapshot?.model) ? "3D-модель этого цветка пока не добавлена." : "Некоторые 3D-модели ещё не загрузились."} На схеме показаны все экземпляры.</p>
                                         <div className="min-h-0 flex-1"><BouquetTopViewMap flowers={flowers} bouquetRadius={getBouquetRadius(flowers)} readonly standalone /></div>
                                         {currentConfiguration && <p className="text-sm">{formatCustomBouquetComposition(createCustomBouquetSummary(currentConfiguration))}</p>}
                                     </div>

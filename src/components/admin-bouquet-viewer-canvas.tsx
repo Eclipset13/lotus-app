@@ -86,7 +86,7 @@ export default function AdminBouquetViewerCanvas({
       className="relative h-full min-h-0 overflow-hidden rounded-[24px] border border-[#edd8d2] bg-[#fff4f1]"
       style={{ minHeight: "inherit" }}
     >
-      {configuration.schemaVersion === 2 && viewMode === "3d" && (
+      {configuration.flowers.some((flower) => !flower.kind && !flower.snapshot?.model) && viewMode === "3d" && (
         <p className="absolute left-3 right-3 top-3 z-20 rounded-xl bg-white/95 p-3 text-sm">
           3D-модель этого цветка пока не добавлена. Полный состав и расположение доступны на карте «Вид сверху».
         </p>

@@ -20,6 +20,9 @@
 # production
 /build
 
+# Persistent, immutable uploaded flower models (back up alongside PostgreSQL).
+/var/flower-models/
+
 # misc
 .DS_Store
 *.pem

@@ -1,3 +1,5 @@
+import { sanitizeFlowerModel, type FlowerModel } from "@/lib/flower-model";
+
 export type FlowerKind = "rose" | "peony" | "tulip";
 export type WrappingKind = "blush" | "kraft" | "ivory";
 export type BouquetVector3 = [number, number, number];
@@ -27,8 +29,8 @@ export type CustomBouquetSummary = {
   wrappingName: string;
 };
 
-export type FlowerSnapshot = { name: string; salePrice: number; color: string | null; imageUrl: string | null };
-export type PublicFlower = { id: string; name: string; color: string | null; imageUrl: string | null; salePrice: number; availableQuantity: number };
+export type FlowerSnapshot = { name: string; salePrice: number; color: string | null; imageUrl: string | null; model?: FlowerModel | null };
+export type PublicFlower = { id: string; name: string; color: string | null; imageUrl: string | null; salePrice: number; availableQuantity: number; model?: FlowerModel | null };
 export type LegacyFlowerLinks = Partial<Record<FlowerKind, string>>;
 
 export function isFlowerId(value: unknown): value is string {
@@ -37,7 +39,7 @@ export function isFlowerId(value: unknown): value is string {
 }
 
 export function flowerSnapshot(flower: PublicFlower): FlowerSnapshot {
-  return { name: flower.name, salePrice: flower.salePrice, color: flower.color, imageUrl: flower.imageUrl };
+  return { name: flower.name, salePrice: flower.salePrice, color: flower.color, imageUrl: flower.imageUrl, model: sanitizeFlowerModel(flower.model) };
 }
 
 /** Only explicit, unambiguous legacy links may translate v1 stock identity. */
@@ -192,6 +194,7 @@ export function sanitizeCustomBouquetConfig(
           name: snapshot.name as string, salePrice: snapshot.salePrice as number,
           color: typeof snapshot.color === "string" ? snapshot.color.slice(0, 120) : null,
           imageUrl: typeof snapshot.imageUrl === "string" ? snapshot.imageUrl.slice(0, 2000) : null,
+          model: sanitizeFlowerModel(snapshot.model),
         } } : {}),
       }),
       position,

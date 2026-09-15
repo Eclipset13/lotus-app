@@ -5,6 +5,8 @@ import { AdminNavigation } from "@/components/admin-navigation";
 import { BrandLogo } from "@/components/brand-logo";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+import { AdminFlowerModel } from "@/components/admin-flower-model";
+import { sanitizeStoredFlowerModel } from "@/lib/flower-model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ const PAGE_SIZE = 20;
 const MAX_BIGINT = "9223372036854775807";
 
 type Flower = {
+  model_3d: unknown;
   id: string;
   name: string;
   category_name: string | null;
@@ -149,6 +152,7 @@ export default async function InventoryFlowerPage({
                f.image_url,
                f.is_active,
                f.constructor_kind,
+               to_jsonb(f)->'model_3d' AS model_3d,
                COALESCE(active_reservations.reserved_quantity, 0)::int AS reserved_quantity,
                GREATEST(f.stock_quantity - COALESCE(active_reservations.reserved_quantity, 0), 0)::int AS available_quantity
         FROM public.flowers f
@@ -299,6 +303,8 @@ export default async function InventoryFlowerPage({
             </dl>
           </div>
         </section>
+
+        <AdminFlowerModel flowerId={flower.id} initialModel={sanitizeStoredFlowerModel(flower.model_3d)} />
 
         <AdminInventoryControls
           flowerId={flower.id}

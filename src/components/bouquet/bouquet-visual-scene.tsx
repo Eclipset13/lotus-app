@@ -11,6 +11,7 @@ import {
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { CUSTOM_BOUQUET_WRAPPINGS } from "@/lib/bouquet";
+import { UploadedFlowerModel } from "@/components/bouquet/uploaded-flower-model";
 import {
   FLOWER_HEAD_OFFSET,
   getBouquetRadius,
@@ -383,7 +384,9 @@ function AnimatedFlower({
         rotation={flower.rotation}
       >
         <group position={[0, -FLOWER_HEAD_OFFSET, 0]}>
-          {flower.kind && <FlowerModel kind={flower.kind} />}
+          {flower.snapshot?.model ? (
+            <group position={[0, -2.15, 0]}><UploadedFlowerModel model={flower.snapshot.model} /></group>
+          ) : flower.kind ? <FlowerModel kind={flower.kind} /> : null}
         </group>
       </group>
     </group>

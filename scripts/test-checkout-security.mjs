@@ -407,6 +407,9 @@ const changeStatus = (patch, id, status) => patch(
 test("stock assortment, aggregate cart availability, trusted snapshots and exactly-once stock lifecycle", async () => {
   const f = await fixture();
   try {
+    await f.client.query("ALTER TABLE pg_temp.flowers ADD COLUMN model_3d jsonb");
+    const assignedModel = { assetId: "11111111-1111-4111-8111-111111111111", settings: { scale: 0.7, rotation: [0, 1, 0], offset: [0, 0.2, 0] } };
+    await f.client.query("UPDATE pg_temp.flowers SET model_3d=$1::jsonb WHERE id=1", [JSON.stringify(assignedModel)]);
     await f.client.query(`
       INSERT INTO pg_temp.flowers (id, name, stock_quantity, sale_price, color, is_active) VALUES
         (2, 'Хризантема Бакарди', 10, 30, 'Белый', true),
@@ -431,6 +434,7 @@ test("stock assortment, aggregate cart availability, trusted snapshots and exact
       itemType: "custom-bouquet", quantity: 3, displayedUnitPrice: 0.01,
       configuration: stockConfig(["1", "1", "2", "3"]),
     }];
+    body.items[1].configuration.flowers[0].snapshot.model = { ...assignedModel, assetId: "22222222-2222-4222-8222-222222222222" };
     await f.client.query("UPDATE pg_temp.flowers SET stock_quantity=11 WHERE id=1");
     const before = await f.snapshot();
     assert.equal((await submit(post, body)).status, 400, "6 catalog roses + 6 custom roses exceed 11");
@@ -454,6 +458,10 @@ test("stock assortment, aggregate cart availability, trusted snapshots and exact
     const data = await f.snapshot();
     const saved = data.order_items.find((item) => item.item_type === "custom_bouquet");
     assert.equal(saved.custom_configuration.schemaVersion, 2);
+    assert.deepEqual(saved.custom_configuration.flowers[0].snapshot.model, assignedModel);
+    await f.client.query("UPDATE pg_temp.flowers SET model_3d=NULL WHERE id=1");
+    const preserved = (await f.snapshot()).order_items.find((item) => item.item_type === "custom_bouquet");
+    assert.deepEqual(preserved.custom_configuration.flowers[0].snapshot.model, assignedModel, "Unlink must not change an order's visual snapshot");
     assert.equal(saved.custom_configuration.flowers[2].snapshot.name, "Хризантема Бакарди");
     assert.equal(saved.custom_configuration.flowers[2].snapshot.salePrice, 30);
     assert.deepEqual(saved.custom_configuration.flowers[2].position, body.items[1].configuration.flowers[2].position);

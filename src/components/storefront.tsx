@@ -364,7 +364,7 @@ export default function Storefront({
                         {item.itemType === "custom-bouquet" ? (
                           <div className="customBouquetDetails">
                             <p>{formatCustomBouquetComposition(item.summary)}</p>
-                            {item.configuration.schemaVersion === 2 && <p>3D-модель этого цветка пока не добавлена. Расположение доступно в редакторе на карте.</p>}
+                            {item.configuration.flowers.some((flower) => !flower.kind && !flower.snapshot?.model) && <p>3D-модель этого цветка пока не добавлена. Расположение доступно в редакторе на карте.</p>}
                             <p>Упаковка: {item.summary.wrappingName}</p>
                             <p>{item.unitPrice.toLocaleString("ru-RU")} сом за букет</p>
                             <Link

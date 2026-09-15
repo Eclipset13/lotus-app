@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
+import { sanitizeFlowerModel } from "@/lib/flower-model";
 import {
   flowerSnapshot, upgradeLegacyConfiguration,
   type CustomBouquetConfig, type FlowerKind, type LegacyFlowerLinks, type PublicFlower,
@@ -14,10 +15,11 @@ export async function loadConstructorStock(client?: PoolClient) {
   const result = await queryable.query<{
     id: string; name: string; color: string | null; image_url: string | null;
     sale_price: string; available_quantity: number; constructor_kind: FlowerKind | null;
+    model_3d: unknown;
   }>(`
     SELECT f.id::text, f.name, f.color, f.image_url, f.sale_price::text,
            GREATEST(f.stock_quantity - COALESCE(r.quantity, 0), 0)::int AS available_quantity,
-           f.constructor_kind
+           f.constructor_kind, to_jsonb(f)->'model_3d' AS model_3d
     FROM public.flowers f
     LEFT JOIN (
       SELECT flower_id, sum(quantity) AS quantity FROM public.order_stock_reservations
@@ -29,6 +31,7 @@ export async function loadConstructorStock(client?: PoolClient) {
   const flowers: PublicFlower[] = result.rows.map((row) => ({
     id: row.id, name: row.name, color: row.color, imageUrl: row.image_url,
     salePrice: Number(row.sale_price), availableQuantity: Number(row.available_quantity),
+    model: sanitizeFlowerModel(row.model_3d),
   }));
   const legacyLinks: LegacyFlowerLinks = {};
   for (const kind of ["rose", "peony", "tulip"] as const) {

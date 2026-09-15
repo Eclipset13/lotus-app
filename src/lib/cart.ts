@@ -130,7 +130,7 @@ export function sanitizeCartItems(value: unknown): CartItem[] {
           : calculateCustomBouquetPrice(configuration),
         configuration,
         summary: createCustomBouquetSummary(configuration),
-        thumbnail: configuration.schemaVersion === 2 ? undefined : sanitizeThumbnail(candidate.thumbnail),
+        thumbnail: configuration.flowers.some((flower) => !flower.kind && !flower.snapshot?.model) ? undefined : sanitizeThumbnail(candidate.thumbnail),
         createdAt,
         updatedAt,
       });
