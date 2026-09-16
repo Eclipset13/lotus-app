@@ -6,7 +6,7 @@ export type AuditAction = "staff.create" | "staff.roles" | "staff.disable" | "st
   | "flower.create" | "flower.update" | "flower.activity" | "flower.prices" | "flower.delete"
   | "category.create" | "category.update" | "category.activity" | "category.delete"
   | "inventory.adjust" | "purchase.post" | "delivery.assign"
-  | "order.status" | "delivery.status";
+  | "order.status" | "delivery.status" | "payment.status";
 // Call with the mutation's transaction. Never pass request bodies or credentials here.
 export async function audit(client: Pick<PoolClient, "query">, actorId: string, action: AuditAction,
   entityId: string, details: Record<string, unknown> = {}) {

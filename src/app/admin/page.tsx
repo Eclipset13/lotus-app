@@ -1023,6 +1023,7 @@ export default async function AdminPage({
                   <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
                     <AdminPaymentActions
                       orderId={order.id}
+                      orderStatus={order.status}
                       currentStatus={order.payment_status || "pending"}
                     />
 
