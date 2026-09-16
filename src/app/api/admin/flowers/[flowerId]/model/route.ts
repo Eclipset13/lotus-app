@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { authorizeApi } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { isFlowerId } from "@/lib/bouquet";
 import { MAX_MODEL_BYTES, sanitizeModelSettings, sanitizeStoredFlowerModel, type StoredFlowerModel } from "@/lib/flower-model";
@@ -14,7 +14,8 @@ async function changeModel(request: Request, context: Context) {
   let committed = false;
   let commitStarted = false;
   try {
-    if (!await isAdminAuthenticated()) return Response.json({ error: "Требуется вход администратора" }, { status: 401 });
+    const session = await authorizeApi("models.manage", request);
+    if (session instanceof Response) return session;
     // Cookie authentication requires same-origin protection for ALL mutations.
     if (request.headers.get("origin") !== new URL(request.url).origin || request.headers.get("sec-fetch-site") === "cross-site") {
       return Response.json({ error: "Запрос отклонён. Обновите страницу" }, { status: 403 });

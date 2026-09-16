@@ -395,7 +395,8 @@ function statusHandler(f) {
         return f.client.query(sql.replaceAll("public.", "pg_temp."), values);
       }, release() {},
     }) } },
-    "@/lib/admin-auth": { isAdminAuthenticated: async () => true },
+    "@/lib/admin-auth": { requirePermission: async () => ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }), authorizeApi: async () => ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }) },
+    "@/lib/admin-audit": { audit: async () => {} },
     "next/cache": { revalidatePath() {} },
   }).PATCH;
 }

@@ -99,7 +99,7 @@ test("authorized upload/settings/replacement/unlink, rollback cleanup, immutable
     };
     const paths = [];
     const overrides = {
-      "@/lib/admin-auth": { isAdminAuthenticated: async () => authenticated },
+      "@/lib/admin-auth": { authorizeApi: async () => authenticated ? ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }) : Response.json({ message: "Требуется вход" }, { status: 401 }) },
       "@/lib/db": { db: { query, connect: async () => ({ query, release() {} }) } },
       "@/lib/flower-model-storage": storage,
       "next/cache": { revalidatePath: (p) => paths.push(p) },

@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { createPurchase } from "../actions";
 import { AdminNavigation } from "@/components/admin-navigation";
 import {
@@ -7,7 +6,7 @@ import {
   type PurchaseSupplierOption,
 } from "@/components/admin-purchase-form";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -23,9 +22,7 @@ type FlowerRow = {
 };
 
 export default async function NewPurchasePage() {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("purchases.manage");
 
   const [suppliersResult, flowersResult] = await Promise.all([
     db.query<SupplierRow>(`

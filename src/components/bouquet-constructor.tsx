@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { FlowerInstanceGroups } from "@/components/flower-instance-groups";
 import { useRouter } from "next/navigation";
 import {
     useCallback,
@@ -651,19 +652,6 @@ export function BouquetConstructor({
         });
     };
 
-    const gatherStems = () => {
-        commitFlowerChange((current) => {
-            if (!current.length) {
-                return current;
-            }
-
-            return alignStemsToAnchor(
-                current,
-                getBouquetRadius(current)
-            );
-        });
-    };
-
     const deleteSelectedFlower = useCallback(() => {
         if (!selectedId) return;
 
@@ -1295,12 +1283,8 @@ export function BouquetConstructor({
                         <h4 className="font-semibold">Состав и выбор экземпляра</h4>
                         {flowers.some((flower) => !flower.kind && !flower.snapshot?.model) && <p>3D-модель этого цветка пока не добавлена. Полное расположение показано на карте; цветы можно выбирать, перемещать и удалять.</p>}
                         {currentConfiguration?.schemaVersion === 2 && <p>{formatCustomBouquetComposition(createCustomBouquetSummary(currentConfiguration))}</p>}
-                        {flowers.map((flower, index) => (
-                            <div key={flower.id} className="rounded-xl border border-[#ead8d1] p-2">
-                                <button type="button" onClick={() => setSelectedId(flower.id)} className="w-full text-left" aria-pressed={selectedId === flower.id}>
-                                    {index + 1}. {flower.snapshot?.name ?? `Цветок ${flower.kind ?? flower.flowerId}`}
-                                </button>
-                                {(!flower.flowerId || !stockFlowers.some((stock) => stock.id === flower.flowerId)) && (
+                        <FlowerInstanceGroups flowers={flowers} selectedId={selectedId} onSelect={setSelectedId}
+                          renderUnlinked={(flower) => ((!flower.flowerId || !stockFlowers.some((stock) => stock.id === flower.flowerId)) && (
                                     <label className="mt-2 block">Нужно выбрать складскую позицию
                                         <select value="" className="mt-1 w-full rounded border p-2" onChange={(event) => {
                                             const stock = stockFlowers.find((item) => item.id === event.target.value);
@@ -1312,9 +1296,7 @@ export function BouquetConstructor({
                                             {stockFlowers.map((stock) => <option key={stock.id} value={stock.id} disabled={stock.availableQuantity === 0}>{stock.name}</option>)}
                                         </select>
                                     </label>
-                                )}
-                            </div>
-                        ))}
+                                ))} />
                     </section>
                 )}
 
@@ -1386,61 +1368,14 @@ export function BouquetConstructor({
                     </p>
 
                     <p className="mt-2 text-xs leading-5 text-[#8a746e]">
-                        Перемешайте цветы, распределите их ровно или
-                        соберите стебли без изменения расстановки.
+                        Перемешайте цветы случайным образом или распределите их ровно.
                     </p>
 
-                    <div className="mt-4 grid grid-cols-3 gap-2">
-                        <button
-                            type="button"
-                            onClick={shuffleFlowers}
-                            aria-label="Перемешать цветы"
-                            title="Создать новую случайную композицию"
-                            disabled={!flowers.length}
-                            className="grid min-h-14 place-items-center rounded-2xl border border-[#e5c9c3] bg-white text-[#806e68] transition hover:border-[#c97d72] hover:bg-[#fff1ed] hover:text-[#b85d70] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b85d70] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
-                                <path d="M16 3h5v5M4 7h3.4c2.2 0 3.4 1.2 4.7 3.1l1.8 2.8C15.2 14.8 16.4 16 18.6 16H21M21 16v5m0-5h-5M4 17h3.4c1.5 0 2.5-.6 3.4-1.7M14.2 8.7C15.3 7.6 16.5 7 18.6 7H21" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            <span className="sr-only">Перемешать</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={distributeFlowers}
-                            aria-label="Ровно распределить цветы"
-                            title="Ровно распределить цветы по букету"
-                            disabled={!flowers.length}
-                            className="grid min-h-14 place-items-center rounded-2xl border border-[#e5c9c3] bg-white text-[#806e68] transition hover:border-[#c97d72] hover:bg-[#fff1ed] hover:text-[#b85d70] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b85d70] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
-                                <circle cx="6" cy="6" r="1.7" fill="currentColor" />
-                                <circle cx="18" cy="6" r="1.7" fill="currentColor" />
-                                <circle cx="6" cy="18" r="1.7" fill="currentColor" />
-                                <circle cx="18" cy="18" r="1.7" fill="currentColor" />
-                                <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-                                <path d="M9.5 6h5M6 9.5v5M18 9.5v5M9.5 18h5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                            </svg>
-                            <span className="sr-only">Распределить</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={gatherStems}
-                            aria-label="Собрать стебли"
-                            title="Свести стебли в одну точку"
-                            disabled={!flowers.length}
-                            className="grid min-h-14 place-items-center rounded-2xl bg-[#c97d72] text-white transition hover:bg-[#b96e64] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b85d70] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6">
-                                <circle cx="6" cy="5" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                                <circle cx="12" cy="4" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                                <circle cx="18" cy="5" r="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                                <path d="M6.8 7 12 20M12 6v14M17.2 7 12 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M9.5 20h5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                            </svg>
-                            <span className="sr-only">Собрать стебли</span>
-                        </button>
+                    <div className="mt-4 grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
+                        <button type="button" onClick={shuffleFlowers} disabled={!flowers.length || Boolean(cartSavePhase)} aria-label="Перемешать цветы"
+                          className="min-h-14 min-w-0 rounded-2xl border border-[#e5c9c3] bg-white px-2 py-3 text-sm font-semibold text-[#806e68] transition hover:bg-[#fff1ed] disabled:cursor-not-allowed disabled:opacity-40">Перемешать</button>
+                        <button type="button" onClick={distributeFlowers} disabled={!flowers.length || Boolean(cartSavePhase)} aria-label="Распределить ровно"
+                          className="min-h-14 min-w-0 rounded-2xl border border-[#e5c9c3] bg-white px-2 py-3 text-sm font-semibold text-[#806e68] transition hover:bg-[#fff1ed] disabled:cursor-not-allowed disabled:opacity-40">Распределить ровно</button>
                     </div>
                 </div>
 

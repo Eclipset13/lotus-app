@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { authorizeApi } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 
@@ -13,15 +13,8 @@ export async function PATCH(
     params: Promise<{ id: string }>;
   }
 ) {
-  if (!(await isAdminAuthenticated())) {
-    return Response.json(
-      {
-        success: false,
-        message: "Требуется вход в админ-панель",
-      },
-      { status: 401 }
-    );
-  }
+  const session = await authorizeApi("payments.manage", request);
+  if (session instanceof Response) return session;
 
   const { id } = await context.params;
 

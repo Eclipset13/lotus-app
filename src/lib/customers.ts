@@ -5,7 +5,7 @@ import { normalizePhone } from "./phone";
 export const nonAdminUserSql = `NOT EXISTS (
   SELECT 1 FROM public.user_roles ur
   JOIN public.roles r ON r.id = ur.role_id
-  WHERE ur.user_id = u.id AND r.code IN ('admin', 'super_admin')
+  WHERE ur.user_id = u.id AND r.code IN ('admin', 'super_admin', 'florist', 'inventory_manager', 'courier')
 )`;
 
 export async function loadCustomerPhoneMap(client: Pool | PoolClient) {

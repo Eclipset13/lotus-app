@@ -1,12 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
 import {
   AdminSupplierForm,
   type SupplierFormValues,
 } from "@/components/admin-supplier-form";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { updateSupplier } from "../../actions";
 
@@ -64,9 +63,7 @@ export default async function EditSupplierPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("suppliers.manage");
 
   const { id } = await params;
   if (!isSupplierId(id)) {

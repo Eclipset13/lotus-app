@@ -1,16 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { ORDER_STATUS_TRANSITIONS, canTransitionOrderStatus, isOrderStatus } from "@/lib/order-transitions";
+import { canWorkOrder } from "@/lib/permissions";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
 type AdminOrderActionsProps = {
+    roles: string[];
+    canManageDelivery: boolean;
     orderId: string;
     orderNumber: string;
     currentStatus: string;
     fulfillmentType: string;
     deliveryStatus: string | null;
-    courierName: string | null;
+    courierUserId: string | null;
 };
 
 const statuses = [
@@ -52,23 +56,14 @@ const statuses = [
     },
 ];
 
-const allowedTransitions: Record<string, string[]> = {
-    new: ["confirmed", "cancelled"],
-    confirmed: ["preparing", "cancelled"],
-    preparing: ["ready", "cancelled"],
-    ready: ["delivering", "completed", "cancelled"],
-    delivering: ["completed", "cancelled"],
-    completed: [],
-    cancelled: [],
-};
-
 export function AdminOrderActions({
+    roles, canManageDelivery,
     orderId,
     orderNumber,
     currentStatus,
     fulfillmentType,
     deliveryStatus,
-    courierName,
+    courierUserId,
 }: AdminOrderActionsProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
@@ -157,14 +152,15 @@ export function AdminOrderActions({
         }
     }
 
-    const visibleTransitions = (allowedTransitions[currentStatus] ?? []).filter(
+    const visibleTransitions = (isOrderStatus(currentStatus) ? ORDER_STATUS_TRANSITIONS[currentStatus] : []).filter(
         (nextStatus) => {
+            if (!isOrderStatus(currentStatus) || !canTransitionOrderStatus(currentStatus, nextStatus, fulfillmentType) || !canWorkOrder(roles, currentStatus, nextStatus)) return false;
             if (fulfillmentType !== "delivery") return true;
             if (currentStatus === "ready" && nextStatus === "completed") {
                 return false;
             }
             if (currentStatus === "ready" && nextStatus === "delivering") {
-                return deliveryStatus === "assigned" && Boolean(courierName?.trim());
+                return deliveryStatus === "assigned" && Boolean(courierUserId);
             }
             if (currentStatus === "delivering" && nextStatus === "completed") {
                 return deliveryStatus === "on_the_way";
@@ -173,7 +169,7 @@ export function AdminOrderActions({
         },
     );
     const showDeliveryManagement =
-        fulfillmentType === "delivery" &&
+        canManageDelivery && fulfillmentType === "delivery" &&
         ["ready", "delivering"].includes(currentStatus);
 
     return (
@@ -184,7 +180,7 @@ export function AdminOrderActions({
 
             <div className="mt-3 flex flex-wrap gap-2">
                 {statuses
-                  .filter((status) => visibleTransitions.includes(status.value))
+                  .filter((status) => visibleTransitions.some((next) => next === status.value))
                   .map((status) => {
                     return (
                         <button

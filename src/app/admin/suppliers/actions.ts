@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 
 export type SupplierActionState = {
@@ -94,9 +94,7 @@ export async function createSupplier(
   _previousState: SupplierActionState,
   formData: FormData,
 ): Promise<SupplierActionState> {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("suppliers.manage");
 
   const parsed = readSupplierInput(formData);
   if (!parsed.input) {
@@ -150,9 +148,7 @@ export async function updateSupplier(
   _previousState: SupplierActionState,
   formData: FormData,
 ): Promise<SupplierActionState> {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("suppliers.manage");
 
   if (!isSupplierId(supplierId)) {
     return { error: "Поставщик не найден", message: "" };
@@ -218,9 +214,7 @@ export async function toggleSupplierStatus(
   void _previousState;
   void _formData;
 
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("suppliers.manage");
 
   if (!isSupplierId(supplierId)) {
     return { error: "Поставщик не найден", message: "" };

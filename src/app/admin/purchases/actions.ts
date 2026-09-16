@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { PoolClient } from "pg";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
+import { audit } from "@/lib/admin-audit";
 import { db } from "@/lib/db";
 
 export type PurchaseActionState = {
@@ -205,9 +206,7 @@ export async function createPurchase(
   _previousState: PurchaseActionState,
   formData: FormData,
 ): Promise<PurchaseActionState> {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("purchases.manage");
 
   let input: PurchaseInput;
   try {
@@ -260,9 +259,7 @@ export async function updatePurchase(
   _previousState: PurchaseActionState,
   formData: FormData,
 ): Promise<PurchaseActionState> {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("purchases.manage");
   if (!isDatabaseId(purchaseId)) {
     return { error: "Поступление не найдено", message: "" };
   }
@@ -341,9 +338,7 @@ export async function postPurchase(
   void _previousState;
   void _formData;
 
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  const session = await requirePermission("purchases.manage");
   if (!isDatabaseId(purchaseId)) {
     return { error: "Поступление не найдено", message: "" };
   }
@@ -443,20 +438,15 @@ export async function postPurchase(
       if (newStock > 2_147_483_647) {
         throw new PurchaseValidationError("Остаток цветка превышает допустимое значение");
       }
-      const weightedCost =
-        oldStock === 0
-          ? unitCost
-          : (oldStock * oldCost + quantity * unitCost) / newStock;
-      const newPurchasePrice = Math.round(weightedCost * 100) / 100;
-
       await client.query(
         `
           UPDATE public.flowers
-          SET purchase_price = $1,
+          SET purchase_price = round((stock_quantity::numeric * purchase_price + $1::numeric * $3::numeric)
+                / (stock_quantity::numeric + $3::numeric), 2),
               updated_at = NOW()
           WHERE id = $2::bigint
         `,
-        [newPurchasePrice, item.flower_id],
+        [item.unit_cost, item.flower_id, quantity],
       );
       await client.query(
         `
@@ -476,7 +466,7 @@ export async function postPurchase(
           purchase.supplier_id,
           purchaseId,
           quantity,
-          unitCost,
+          item.unit_cost,
           `Поступление ${purchase.document_number || `№${purchaseId}`}`,
         ],
       );
@@ -493,6 +483,7 @@ export async function postPurchase(
       `,
       [purchaseId],
     );
+    await audit(client, session.userId, "purchase.post", purchaseId);
     await client.query("COMMIT");
   } catch (error) {
     if (client) {
@@ -520,9 +511,7 @@ export async function cancelPurchase(
   void _previousState;
   void _formData;
 
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("purchases.manage");
   if (!isDatabaseId(purchaseId)) {
     return { error: "Поступление не найдено", message: "" };
   }

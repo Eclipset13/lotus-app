@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 
 export default function AdminLoginPage() {
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,7 +21,7 @@ export default function AdminLoginPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ phone, password }),
       });
 
       const result = await response.json();
@@ -29,7 +30,7 @@ export default function AdminLoginPage() {
         throw new Error(result.message || "Не удалось войти");
       }
 
-      window.location.assign("/admin");
+      window.location.assign(result.redirectTo || "/admin");
     } catch (loginError) {
       setError(
         loginError instanceof Error
@@ -55,10 +56,13 @@ export default function AdminLoginPage() {
         </h1>
 
         <p className="mt-3 text-center text-sm leading-6 text-[#806e68]">
-          Введите пароль владельца магазина
+          Введите телефон и личный пароль сотрудника
         </p>
 
         <form onSubmit={login} className="mt-8">
+          <label className="mb-4 block text-sm text-[#342622]">Телефон
+            <input type="tel" autoComplete="username" required value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+992 …" className="mt-2 w-full rounded-2xl border border-[#ead8d2] bg-[#fffaf8] px-4 py-4 outline-none focus:border-[#b85d70]" />
+          </label>
           <label className="text-sm text-[#342622]">
             Пароль
 

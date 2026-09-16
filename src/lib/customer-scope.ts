@@ -13,7 +13,7 @@ export const customerScopeSql = `
       FROM public.user_roles admin_user_role
       JOIN public.roles admin_role ON admin_role.id = admin_user_role.role_id
       WHERE admin_user_role.user_id = u.id
-        AND admin_role.code IN ('admin', 'super_admin')
+        AND admin_role.code IN ('admin', 'super_admin', 'florist', 'inventory_manager', 'courier')
     )
       AND (
         EXISTS (

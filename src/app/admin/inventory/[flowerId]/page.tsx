@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AdminInventoryControls } from "@/components/admin-inventory-controls";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
+import { hasPermission } from "@/lib/permissions";
+import { AdminStockReadonly } from "@/components/admin-stock-readonly";
+import { AdminFlowerPrices } from "@/components/admin-flower-prices";
 import { db } from "@/lib/db";
 import { AdminFlowerModel } from "@/components/admin-flower-model";
 import { sanitizeStoredFlowerModel } from "@/lib/flower-model";
@@ -128,9 +130,8 @@ export default async function InventoryFlowerPage({
   params: Promise<{ flowerId: string }>;
   searchParams: Promise<{ page?: string }>;
 }) {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  const session = await requirePermission("inventory.read");
+  if (!hasPermission(session.roles, "inventory.manage")) return <AdminStockReadonly flowerId={(await params).flowerId} />;
 
   const { flowerId } = await params;
   if (!isDatabaseId(flowerId)) {
@@ -305,6 +306,8 @@ export default async function InventoryFlowerPage({
         </section>
 
         <AdminFlowerModel flowerId={flower.id} initialModel={sanitizeStoredFlowerModel(flower.model_3d)} />
+
+        <AdminFlowerPrices flowerId={flower.id} purchasePrice={flower.purchase_price} salePrice={flower.sale_price} />
 
         <AdminInventoryControls
           flowerId={flower.id}

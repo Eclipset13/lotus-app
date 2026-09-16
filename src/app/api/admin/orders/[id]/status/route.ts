@@ -1,7 +1,9 @@
 import { revalidatePath } from "next/cache";
 import type { PoolClient } from "pg";
+import { audit } from "@/lib/admin-audit";
+import { canWorkOrder } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { authorizeApi } from "@/lib/admin-auth";
 import {
   getOrderFlowerRequirements,
   type OrderFlowerRequirement,
@@ -26,6 +28,7 @@ type LockedDelivery = {
   id: string;
   status: string;
   courier_name: string | null;
+  courier_user_id: string | null;
 };
 
 type LockedFlower = {
@@ -372,7 +375,7 @@ async function validateAndLockDeliveryTransition(
 
   const deliveryResult = await client.query<LockedDelivery>(
     `
-      SELECT id::text, status, courier_name
+      SELECT id::text, status, courier_name, courier_user_id::text
       FROM public.deliveries
       WHERE order_id = $1::uuid
       FOR UPDATE
@@ -385,7 +388,7 @@ async function validateAndLockDeliveryTransition(
   }
 
   if (nextStatus === "delivering") {
-    if (delivery.status !== "assigned" || !delivery.courier_name?.trim()) {
+    if (delivery.status !== "assigned" || !delivery.courier_user_id) {
       throw new StatusTransitionError(
         "Сначала назначьте курьера в разделе «Доставка»",
       );
@@ -403,12 +406,8 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  if (!(await isAdminAuthenticated())) {
-    return Response.json(
-      { success: false, message: "Требуется вход в админ-панель" },
-      { status: 401 },
-    );
-  }
+  const session = await authorizeApi("orders.work", request);
+  if (session instanceof Response) return session;
 
   const { id } = await context.params;
   if (!uuidPattern.test(id)) {
@@ -482,6 +481,13 @@ export async function PATCH(
       );
     }
 
+    if (order.fulfillment_type === "pickup" && body.status === "delivering") {
+      throw new StatusTransitionError("Для самовывоза статус «Доставляется» недопустим");
+    }
+    if (!canWorkOrder(session.roles, order.status, body.status)) {
+      await client.query("ROLLBACK");
+      return Response.json({ message: "Недостаточно прав для этого статуса" }, { status: 403 });
+    }
     if (order.status === body.status) {
       await client.query("COMMIT");
       return Response.json({
@@ -490,7 +496,7 @@ export async function PATCH(
         order,
       });
     }
-    if (!canTransitionOrderStatus(order.status, body.status)) {
+    if (!canTransitionOrderStatus(order.status, body.status, order.fulfillment_type)) {
       throw new StatusTransitionError(
         "Недопустимый переход статуса заказа",
       );
@@ -545,6 +551,7 @@ export async function PATCH(
       body.status,
       lockedDelivery,
     );
+    await audit(client, session.userId, "order.status", order.id, { before: order.status, after: body.status });
     await client.query("COMMIT");
 
     revalidatePath("/admin");

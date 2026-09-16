@@ -51,7 +51,7 @@ test("public assortment follows admin visibility and edits, and both pages are r
     const redirected = new Error("Redirect");
     const overrides = {
       "@/lib/db": { db: { query, connect: async () => ({ query, release() {} }) } },
-      "@/lib/admin-auth": { isAdminAuthenticated: async () => true },
+      "@/lib/admin-auth": { requirePermission: async () => ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }), authorizeApi: async () => ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }) },
       "next/cache": { revalidatePath: (path) => paths.push(path) },
       "next/navigation": { redirect: () => { throw redirected; } },
     };

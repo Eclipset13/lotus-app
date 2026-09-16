@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
 import {
   AdminProductForm,
@@ -6,7 +6,7 @@ import {
   type ProductFlowerOption,
 } from "@/components/admin-product-form";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { updateProduct } from "../../actions";
 
@@ -46,7 +46,7 @@ export default async function EditProductPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  await requirePermission("products.manage");
   const { id } = await params;
   if (!isDatabaseId(id)) notFound();
 

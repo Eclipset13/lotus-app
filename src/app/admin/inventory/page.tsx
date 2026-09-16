@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { AdminSelect } from "@/components/admin-filter-select";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
+import { hasPermission } from "@/lib/permissions";
+import { AdminStockReadonly } from "@/components/admin-stock-readonly";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -96,9 +97,8 @@ export default async function AdminInventoryPage({
     sort?: string;
   }>;
 }) {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  const session = await requirePermission("inventory.read");
+  if (!hasPermission(session.roles, "inventory.manage")) return <AdminStockReadonly  />;
 
   const params = await searchParams;
   const query = (params.q ?? "").trim().slice(0, 120);

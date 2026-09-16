@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { PoolClient } from "pg";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 
 export type ProductActionState = { error: string };
@@ -152,7 +152,7 @@ export async function createProduct(
   _previousState: ProductActionState,
   formData: FormData,
 ): Promise<ProductActionState> {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  await requirePermission("products.manage");
 
   let values: ReturnType<typeof parseBouquetForm>;
   try {
@@ -211,7 +211,7 @@ export async function updateProduct(
   _previousState: ProductActionState,
   formData: FormData,
 ): Promise<ProductActionState> {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  await requirePermission("products.manage");
   if (!isDatabaseId(productId)) return { error: "Букет не найден" };
 
   let values: ReturnType<typeof parseBouquetForm>;
@@ -269,7 +269,7 @@ export async function updateProduct(
 }
 
 export async function toggleProductVisibility(productId: string) {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  await requirePermission("products.manage");
   if (!isDatabaseId(productId)) return;
 
   try {

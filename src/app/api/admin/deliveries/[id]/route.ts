@@ -1,6 +1,9 @@
 import { revalidatePath } from "next/cache";
 import type { PoolClient } from "pg";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { authorizeApi } from "@/lib/admin-auth";
+import { hasPermission } from "@/lib/permissions";
+import { audit } from "@/lib/admin-audit";
+import { parsePrice } from "@/lib/money-input";
 import { db } from "@/lib/db";
 import {
   canTransitionDeliveryStatus,
@@ -25,11 +28,13 @@ type LockedDelivery = {
   order_id: string;
   status: string;
   courier_name: string | null;
+  courier_user_id: string | null;
 };
 
 type LockedOrder = {
   id: string;
   status: string;
+  fulfillment_type: string;
 };
 
 class DeliveryRequestError extends Error {
@@ -53,18 +58,9 @@ function trimText(value: unknown, maximumLength: number, label: string) {
 }
 
 function parseCourierCost(value: unknown) {
-  if (typeof value !== "string" && typeof value !== "number") {
-    throw new DeliveryRequestError("Укажите стоимость доставки", 400);
-  }
-  const normalized = String(value).trim().replace(",", ".");
-  if (!normalized) {
-    throw new DeliveryRequestError("Укажите стоимость доставки", 400);
-  }
-  const cost = Number(normalized);
-  if (!Number.isFinite(cost) || cost < 0 || cost > 999_999_999) {
-    throw new DeliveryRequestError("Проверьте стоимость доставки", 400);
-  }
-  return cost.toFixed(2);
+  const cost = parsePrice(typeof value === "number" ? String(value) : value);
+  if (cost === null) throw new DeliveryRequestError("Проверьте стоимость доставки", 400);
+  return cost;
 }
 
 function parseScheduledAt(value: unknown) {
@@ -79,21 +75,21 @@ function parseScheduledAt(value: unknown) {
   return scheduledAt;
 }
 
-async function lockDeliveryAndOrder(client: PoolClient, deliveryId: string) {
+async function lockDeliveryAndOrder(client: PoolClient, deliveryId: string, courierId: string | null) {
   const identityResult = await client.query<{ order_id: string }>(
     `
       SELECT order_id::text
       FROM public.deliveries
-      WHERE id = $1::uuid
+      WHERE id = $1::uuid AND ($2::uuid IS NULL OR courier_user_id = $2::uuid)
     `,
-    [deliveryId],
+    [deliveryId, courierId],
   );
   const orderId = identityResult.rows[0]?.order_id;
   if (!orderId) throw new DeliveryRequestError("Доставка не найдена", 404);
 
   const orderResult = await client.query<LockedOrder>(
     `
-      SELECT id::text, status
+      SELECT id::text, status, fulfillment_type
       FROM public.orders
       WHERE id = $1::uuid
       FOR UPDATE
@@ -107,7 +103,7 @@ async function lockDeliveryAndOrder(client: PoolClient, deliveryId: string) {
 
   const deliveryResult = await client.query<LockedDelivery>(
     `
-      SELECT id::text, order_id::text, status, courier_name
+      SELECT id::text, order_id::text, status, courier_name, courier_user_id::text
       FROM public.deliveries
       WHERE id = $1::uuid
         AND order_id = $2::uuid
@@ -120,6 +116,9 @@ async function lockDeliveryAndOrder(client: PoolClient, deliveryId: string) {
     throw new DeliveryRequestError("Доставка не найдена", 404);
   }
 
+  if (order.fulfillment_type !== "delivery") throw new DeliveryRequestError("Самовывоз не требует доставки", 409);
+  if (order.status === "cancelled") throw new DeliveryRequestError("Заказ отменён", 409);
+  if (courierId && delivery.courier_user_id !== courierId) throw new DeliveryRequestError("Доставка не найдена", 404);
   return {
     delivery: { ...delivery, status: delivery.status as DeliveryStatus },
     order: { ...order, status: order.status as OrderStatus },
@@ -160,12 +159,8 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  if (!(await isAdminAuthenticated())) {
-    return Response.json(
-      { success: false, message: "Требуется вход в админ-панель" },
-      { status: 401 },
-    );
-  }
+  const session = await authorizeApi("deliveries.read", request);
+  if (session instanceof Response) return session;
 
   const { id } = await context.params;
   if (!uuidPattern.test(id)) {
@@ -193,10 +188,25 @@ export async function PATCH(
   try {
     client = await db.connect();
     await client.query("BEGIN");
-    const { delivery, order } = await lockDeliveryAndOrder(client, id);
+    const { delivery, order } = await lockDeliveryAndOrder(client, id,
+      hasPermission(session.roles, "deliveries.manage") ? null : session.userId);
+    if (!hasPermission(session.roles, "deliveries.manage")) {
+      if (body.action !== "status" || Object.keys(body).some((key) => !["action", "status"].includes(key)) ||
+        !((delivery.status === "assigned" && body.status === "on_the_way") || (delivery.status === "on_the_way" && body.status === "delivered"))) {
+        throw new DeliveryRequestError("Недостаточно прав для этого действия", 403);
+      }
+    }
 
     if (body.action === "details") {
-      const courierName = trimText(body.courierName, 120, "Имя курьера");
+      const courierUserId = trimText(body.courierUserId, 36, "Курьер");
+      if (courierUserId && !uuidPattern.test(courierUserId)) throw new DeliveryRequestError("Выберите курьера", 400);
+      if (["delivered", "cancelled", "failed", "on_the_way"].includes(delivery.status)) throw new DeliveryRequestError("Назначение этой доставки уже нельзя изменить", 409);
+      const courier = courierUserId ? (await client.query<{ name: string; phone: string }>(`SELECT u.name,u.phone FROM public.users u
+        JOIN public.staff_credentials c ON c.user_id=u.id WHERE u.id=$1 AND u.status='active'
+        AND EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND r.code='courier')
+        FOR SHARE OF u`, [courierUserId])).rows[0] : null;
+      if (courierUserId && !courier) throw new DeliveryRequestError("Курьер не найден или отключён", 400);
+      const courierName = courier?.name ?? "";
       const scheduledAt = parseScheduledAt(body.scheduledAt);
       const courierCost = parseCourierCost(body.courierCost);
       const internalNote = trimText(body.internalNote, 4_000, "Примечание");
@@ -211,11 +221,15 @@ export async function PATCH(
               END,
               courier_cost = $4::numeric(12, 2),
               internal_note = NULLIF($5::text, ''),
+              courier_user_id = NULLIF($6::text, '')::uuid,
+              courier_phone = $7,
+              status = CASE WHEN $6::text = '' THEN 'planned' ELSE 'assigned' END,
               updated_at = NOW()
           WHERE id = $1::uuid
         `,
-        [id, courierName, scheduledAt, courierCost, internalNote],
+        [id, courierName, scheduledAt, courierCost, internalNote, courierUserId, courier?.phone ?? null],
       );
+      await audit(client, session.userId, "delivery.assign", id, { before: delivery.courier_user_id, after: courierUserId || null });
       await client.query("COMMIT");
       revalidatePath("/admin/deliveries");
       return Response.json({
@@ -242,7 +256,7 @@ export async function PATCH(
     }
     if (
       ["assigned", "on_the_way"].includes(body.status) &&
-      !delivery.courier_name?.trim()
+      !delivery.courier_user_id
     ) {
       throw new DeliveryRequestError("Сначала укажите курьера", 409);
     }
@@ -266,6 +280,7 @@ export async function PATCH(
       throw new Error(`Delivery ${id} status changed concurrently`);
     }
 
+    await audit(client, session.userId, "delivery.status", id, { before: delivery.status, after: body.status });
     await client.query("COMMIT");
     revalidatePath("/admin/deliveries");
     revalidatePath("/admin");

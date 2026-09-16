@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { hasPermission } from "@/lib/permissions";
+import { CourierDeliveries } from "@/components/courier-deliveries";
 import { AdminDeliveryEditor } from "@/components/admin-delivery-editor";
 import { AdminSelect } from "@/components/admin-filter-select";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import {
   DELIVERY_STATUS_LABELS,
@@ -31,6 +32,7 @@ type DeliveryRow = {
   requested_at: Date | null;
   scheduled_at: Date | null;
   scheduled_at_input: string | null;
+  courier_user_id: string | null;
   courier_name: string | null;
   courier_cost: string;
   internal_note: string | null;
@@ -120,7 +122,12 @@ export default async function AdminDeliveriesPage({
     sort?: string;
   }>;
 }) {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  const session = await requirePermission("deliveries.read");
+  if (!hasPermission(session.roles, "deliveries.manage")) return <CourierDeliveries />;
+  const couriers = await db.query<{ id: string; name: string }>(`SELECT u.id::text,u.name FROM public.users u
+    JOIN public.staff_credentials c ON c.user_id=u.id
+    WHERE u.status='active' AND EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.roles r ON r.id=ur.role_id
+      WHERE ur.user_id=u.id AND r.code='courier') ORDER BY u.name`);
 
   const params = await searchParams;
   const searchQuery = (params.q ?? "").trim().slice(0, 160);
@@ -140,7 +147,7 @@ export default async function AdminDeliveriesPage({
     : "nearest";
 
   const values: string[] = [];
-  const conditions: string[] = [];
+  const conditions: string[] = ["o.fulfillment_type = 'delivery'"];
   if (searchQuery) {
     values.push(`%${searchQuery}%`);
     const parameter = `$${values.length}`;
@@ -212,6 +219,7 @@ export default async function AdminDeliveriesPage({
                  d.scheduled_at AT TIME ZONE 'Asia/Dushanbe',
                  'YYYY-MM-DD"T"HH24:MI'
                ) AS scheduled_at_input,
+               d.courier_user_id::text,
                d.courier_name,
                d.courier_cost::text,
                d.internal_note,
@@ -245,6 +253,7 @@ export default async function AdminDeliveriesPage({
              )::int AS cancelled
       FROM public.deliveries d
       JOIN public.orders o ON o.id = d.order_id
+      WHERE o.fulfillment_type = 'delivery'
     `),
   ]);
   const statistics = statisticsResult.rows[0] ?? {
@@ -493,6 +502,8 @@ export default async function AdminDeliveriesPage({
                 )}
 
                 <AdminDeliveryEditor
+                  couriers={couriers.rows}
+                  courierUserId={delivery.courier_user_id ?? ""}
                   deliveryId={delivery.id}
                   status={delivery.status}
                   courierName={delivery.courier_name ?? ""}

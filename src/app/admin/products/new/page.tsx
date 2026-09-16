@@ -1,8 +1,7 @@
-import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { AdminProductForm, type ProductFlowerOption } from "@/components/admin-product-form";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { createProduct } from "../actions";
 
@@ -18,7 +17,7 @@ type FlowerRow = {
 };
 
 export default async function NewProductPage() {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  await requirePermission("products.manage");
 
   const flowersResult = await db.query<FlowerRow>(`
     SELECT id::text, name, unit, stock_quantity, is_active

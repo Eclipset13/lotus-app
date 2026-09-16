@@ -1,15 +1,11 @@
 import { db } from "@/lib/db";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { authorizeApi } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  if (!(await isAdminAuthenticated())) {
-    return Response.json(
-      { success: false, message: "Требуется вход в админ-панель" },
-      { status: 401 },
-    );
-  }
+export async function GET(request: Request) {
+  const session = await authorizeApi("settings.manage", request);
+  if (session instanceof Response) return session;
 
   try {
     await db.query("SELECT 1");

@@ -2,11 +2,12 @@ import { customerScopeSql } from "@/lib/customer-scope";
 import { normalizePhone } from "@/lib/phone";
 import { loadCustomerPhoneMap } from "@/lib/customers";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AdminSelect } from "@/components/admin-filter-select";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
+import { hasPermission } from "@/lib/permissions";
+import { FloristCustomers } from "@/components/florist-customers";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -86,7 +87,8 @@ export default async function AdminCustomersPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  if (!(await isAdminAuthenticated())) redirect("/admin/login");
+  const session = await requirePermission("customers.read");
+  if (!hasPermission(session.roles, "orders.manage")) return <FloristCustomers query={singleParam((await searchParams).q).trim().slice(0,120)} />;
 
   const params = await searchParams;
   const query = singleParam(params.q).trim().slice(0, 120);

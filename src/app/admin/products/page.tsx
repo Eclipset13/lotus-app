@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
 import Image from "next/image";
 import { AdminNavigation } from "@/components/admin-navigation";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import Link from "next/link";
 import { toggleProductVisibility } from "./actions";
@@ -26,9 +25,7 @@ function formatMoney(value: string) {
 }
 
 export default async function AdminProductsPage() {
-    if (!(await isAdminAuthenticated())) {
-        redirect("/admin/login");
-    }
+    await requirePermission("products.manage");
 
     const result = await db.query<Product>(`
     SELECT

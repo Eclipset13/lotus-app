@@ -1,8 +1,8 @@
 import { normalizePhone } from "@/lib/phone";
 import { AdminOrderActions } from "@/components/admin-order-actions";
-import { redirect } from "next/navigation";
+import { hasPermission } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { AdminPaymentActions } from "@/components/admin-payment-actions";
 import { AdminFilterSelect } from "@/components/admin-filter-select";
 import { AdminNavigation } from "@/components/admin-navigation";
@@ -11,6 +11,7 @@ import {
   AdminBouquetViewButton,
 } from "@/components/admin-bouquet-viewer";
 import { BrandLogo } from "@/components/brand-logo";
+import { AdminLogoutButton } from "@/components/admin-logout-button";
 import Link from "next/link";
 import {
   createCustomBouquetSummary,
@@ -76,7 +77,7 @@ type AdminOrder = {
   floor: string | null;
   requested_at: Date | null;
   delivery_status: string | null;
-  courier_name: string | null;
+  courier_user_id: string | null;
   items: RawOrderItem[];
   status_history: OrderStatusHistoryEntry[];
 };
@@ -316,9 +317,7 @@ export default async function AdminPage({
   const statusFilter = params.status || "all";
   const paymentFilter = params.payment || "all";
   const sortOrder = params.sort || "newest";
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  const session = await requirePermission("orders.read");
 
   const result = await db.query<AdminOrder>(`
     SELECT
@@ -342,7 +341,7 @@ export default async function AdminPage({
       delivery.floor,
       delivery.requested_at,
       delivery.delivery_status,
-      delivery.courier_name,
+      delivery.courier_user_id,
       COALESCE(order_products.items, '[]'::json) AS items,
       COALESCE(status_history.entries, '[]'::json) AS status_history
     FROM orders o
@@ -370,9 +369,9 @@ export default async function AdminPage({
         d.floor,
         d.requested_at,
         d.status AS delivery_status,
-        d.courier_name
+        d.courier_user_id::text AS courier_user_id
       FROM deliveries d
-      WHERE d.order_id = o.id
+      WHERE d.order_id = o.id AND o.fulfillment_type = 'delivery'
       ORDER BY d.created_at DESC
       LIMIT 1
     ) delivery ON true
@@ -593,14 +592,7 @@ export default async function AdminPage({
               Открыть магазин
             </Link>
 
-            <form action="/api/admin/logout" method="post">
-              <button
-                type="submit"
-                className="rounded-full bg-[#342622] px-5 py-3 text-sm text-white"
-              >
-                Выйти
-              </button>
-            </form>
+            <AdminLogoutButton className="rounded-full bg-[#342622] text-white hover:bg-[#b85d70]" />
           </div>
           <AdminNavigation />
         </header>
@@ -1035,12 +1027,14 @@ export default async function AdminPage({
                     />
 
                     <AdminOrderActions
+                      roles={session.roles}
+                      canManageDelivery={hasPermission(session.roles, "deliveries.manage")}
                       orderId={order.id}
                       orderNumber={order.order_number}
                       currentStatus={order.status}
                       fulfillmentType={order.fulfillment_type}
                       deliveryStatus={order.delivery_status}
-                      courierName={order.courier_name}
+                      courierUserId={order.courier_user_id}
                     />
                   </div>
                 </div>

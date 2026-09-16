@@ -1,17 +1,14 @@
-import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { AdminSupplierForm } from "@/components/admin-supplier-form";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { createSupplier } from "../actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function NewSupplierPage() {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("suppliers.manage");
 
   return (
     <main className="min-h-screen bg-[#fff9f7] px-5 py-8 text-[#342622] md:px-10 md:py-12">

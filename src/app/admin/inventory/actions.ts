@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import type { PoolClient } from "pg";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/admin-audit";
+import { parsePrice } from "@/lib/money-input";
 
 export type InventoryActionState = {
   error: string;
@@ -62,9 +64,7 @@ export async function adjustInventory(
   _previousState: InventoryActionState,
   formData: FormData,
 ): Promise<InventoryActionState> {
-  if (!(await isAdminAuthenticated())) {
-    return { error: "Требуется вход администратора", message: "" };
-  }
+  const session = await requirePermission("inventory.manage");
   if (!isDatabaseId(flowerId)) {
     return { error: "Цветок не найден", message: "" };
   }
@@ -172,6 +172,7 @@ export async function adjustInventory(
       );
     }
 
+    await audit(client, session.userId, "inventory.adjust", flowerId, { before: currentStock, after: updatedStock, reason });
     await client.query("COMMIT");
     revalidateInventory(flowerId);
     return {
@@ -196,9 +197,7 @@ export async function updateMinimumStock(
   _previousState: InventoryActionState,
   formData: FormData,
 ): Promise<InventoryActionState> {
-  if (!(await isAdminAuthenticated())) {
-    return { error: "Требуется вход администратора", message: "" };
-  }
+  await requirePermission("inventory.manage");
   if (!isDatabaseId(flowerId)) {
     return { error: "Цветок не найден", message: "" };
   }
@@ -243,9 +242,7 @@ export async function updateConstructorKind(
   _previousState: InventoryActionState,
   formData: FormData,
 ): Promise<InventoryActionState> {
-  if (!(await isAdminAuthenticated())) {
-    return { error: "Требуется вход администратора", message: "" };
-  }
+  await requirePermission("inventory.manage");
   if (!isDatabaseId(flowerId)) {
     return { error: "Цветок не найден", message: "" };
   }
@@ -290,4 +287,27 @@ export async function updateConstructorKind(
 
   revalidateInventory(flowerId);
   return { error: "", message: "Связь со старым конструктором сохранена" };
+}
+
+export async function updateFlowerPrices(flowerId: string, _previous: InventoryActionState, formData: FormData): Promise<InventoryActionState> {
+  const session = await requirePermission("prices.manage");
+  if (!isDatabaseId(flowerId)) return { error: "Цветок не найден", message: "" };
+  const purchase = parsePrice(formData.get("purchase_price"));
+  const sale = parsePrice(formData.get("sale_price"));
+  if (purchase === null || sale === null) return { error: "Введите неотрицательные цены: до 10 цифр и не более двух знаков после запятой", message: "" };
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const before = await client.query<{ purchase_price: string; sale_price: string }>(
+      "SELECT purchase_price::text, sale_price::text FROM public.flowers WHERE id=$1::bigint FOR UPDATE", [flowerId]);
+    if (!before.rows.length) { await client.query("ROLLBACK"); return { error: "Цветок не найден", message: "" }; }
+    await client.query("UPDATE public.flowers SET purchase_price=$2::numeric, sale_price=$3::numeric, updated_at=NOW() WHERE id=$1::bigint", [flowerId, purchase, sale]);
+    await audit(client, session.userId, "flower.prices", flowerId, { before: before.rows[0], after: { purchase_price: purchase, sale_price: sale } });
+    await client.query("COMMIT");
+  } catch {
+    await client.query("ROLLBACK");
+    return { error: "Не удалось сохранить цены", message: "" };
+  } finally { client.release(); }
+  revalidatePath("/", "layout");
+  return { error: "", message: "Цены сохранены" };
 }

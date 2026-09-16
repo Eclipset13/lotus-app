@@ -9,7 +9,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { technicalGlb } from "./fixtures/technical-glb.mjs";
 
-const base = process.env.LOTUS_TEST_URL ?? "http://127.0.0.1:3108";
+const base = process.env.LOTUS_FIXTURE_TEST_URL ?? process.env.LOTUS_TEST_URL ?? "http://127.0.0.1:3108";
 const routeDirectory = resolve("src/app/lotus-model-test-fixture");
 await mkdir(routeDirectory); // Fail rather than overwrite an existing directory.
 const profile = await mkdtemp(join(tmpdir(), "lotus-model-browser-"));

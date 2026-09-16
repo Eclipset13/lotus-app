@@ -24,6 +24,7 @@ function loadTs(file, overrides = {}) {
       if (name === "./phone" || name === "@/lib/phone") return phone;
       if (name === "@/lib/customers") return customers;
       if (name === "@/lib/customer-scope") return scope;
+      if (name.startsWith("@/lib/")) return loadTs(resolve(`src/${name.slice(2)}.ts`), overrides);
       return require(name);
     },
   });
@@ -116,33 +117,14 @@ test("E.164 schema, real unique violation recovery and two orders sharing a user
   }
 });
 
-test("existing administrator password login and cookie authentication", async () => {
-  const previousPassword = process.env.ADMIN_PASSWORD;
-  const previousToken = process.env.ADMIN_SESSION_TOKEN;
-  process.env.ADMIN_PASSWORD = "test-only-password";
-  process.env.ADMIN_SESSION_TOKEN = "test-only-session";
-  try {
-    const login = loadTs(resolve("src/app/api/admin/login/route.ts"), {
-      "@/lib/admin-auth": { ADMIN_COOKIE_NAME: "lotus-admin-session" },
-    });
-    const rejected = await login.POST({ json: async () => ({ password: "wrong" }) });
-    assert.equal(rejected.status, 401);
-    const accepted = await login.POST({ json: async () => ({ password: "test-only-password" }) });
-    assert.equal(accepted.status, 200);
-    assert.match(accepted.headers.get("set-cookie"), /lotus-admin-session=test-only-session/);
-    assert.match(accepted.headers.get("set-cookie"), /HttpOnly/i);
-    for (const token of [undefined, "wrong", "test-only-session"]) {
-      const auth = loadTs(resolve("src/lib/admin-auth.ts"), {
-        "next/headers": { cookies: async () => ({ get: () => token ? { value: token } : undefined }) },
-      });
-      assert.equal(await auth.isAdminAuthenticated(), token === "test-only-session");
-    }
-  } finally {
-    if (previousPassword === undefined) delete process.env.ADMIN_PASSWORD;
-    else process.env.ADMIN_PASSWORD = previousPassword;
-    if (previousToken === undefined) delete process.env.ADMIN_SESSION_TOKEN;
-    else process.env.ADMIN_SESSION_TOKEN = previousToken;
-  }
+test("shared administrator password is not accepted by personal login", async () => {
+  const login = loadTs(resolve("src/app/api/admin/login/route.ts"), {
+    "@/lib/admin-auth": { checkRequestOrigin: () => true },
+    "@/lib/staff-login": { loginStaff: async (phone) => { assert.equal(phone, undefined); return { status: 401 }; } },
+  });
+  const response = await login.POST({ json: async () => ({ password: "old-shared-password" }) });
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get("set-cookie"), null);
 });
 
 test("legacy reuse, grouped page queries, search, payments and admin exclusion in PostgreSQL", async () => {
@@ -198,7 +180,7 @@ test("legacy reuse, grouped page queries, search, payments and admin exclusion i
     // Execute all actual page SQL, including search, counts, pagination and addresses.
     const page = loadTs(resolve("src/app/admin/customers/page.tsx"), {
       "@/lib/db": { db: adapter },
-      "@/lib/admin-auth": { isAdminAuthenticated: async () => true },
+      "@/lib/admin-auth": { requirePermission: async () => ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }), authorizeApi: async () => ({ userId: "00000000-0000-0000-0000-000000000001", roles: ["super_admin"] }) },
       "next/navigation": { redirect: () => { throw new Error("Unexpected redirect"); } },
     });
     for (const q of ["+992900111222", "992 900 111 222", "900111222", "Alias", "OLD-2"]) {

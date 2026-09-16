@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AdminNavigation } from "@/components/admin-navigation";
 import { AdminSelect } from "@/components/admin-filter-select";
 import { AdminSupplierStatusForm } from "@/components/admin-supplier-status-form";
 import { BrandLogo } from "@/components/brand-logo";
-import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -44,9 +43,7 @@ export default async function AdminSuppliersPage({
 }: {
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
-  if (!(await isAdminAuthenticated())) {
-    redirect("/admin/login");
-  }
+  await requirePermission("suppliers.manage");
 
   const params = await searchParams;
   const searchQuery = (params.q ?? "").trim().slice(0, 120);

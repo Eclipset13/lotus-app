@@ -9,6 +9,8 @@ import {
 } from "@/lib/delivery";
 
 type AdminDeliveryEditorProps = {
+  courierUserId: string;
+  couriers: { id: string; name: string }[];
   deliveryId: string;
   status: DeliveryStatus;
   courierName: string;
@@ -51,6 +53,7 @@ async function patchDelivery(deliveryId: string, payload: object) {
 }
 
 export function AdminDeliveryEditor({
+  courierUserId, couriers,
   deliveryId,
   status,
   courierName,
@@ -90,7 +93,7 @@ export function AdminDeliveryEditor({
     const formData = new FormData(event.currentTarget);
     void runRequest({
       action: "details",
-      courierName: formData.get("courier_name"),
+      courierUserId: formData.get("courier_user_id"),
       scheduledAt: formData.get("scheduled_at"),
       courierCost: formData.get("courier_cost"),
       internalNote: formData.get("internal_note"),
@@ -118,14 +121,10 @@ export function AdminDeliveryEditor({
       <form onSubmit={saveDetails} className="grid gap-4 lg:grid-cols-3">
         <label className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">
           Курьер
-          <input
-            name="courier_name"
-            type="text"
-            maxLength={120}
-            defaultValue={courierName}
-            placeholder="Имя курьера"
-            className={inputClass}
-          />
+          <select name="courier_user_id" defaultValue={courierUserId} className={inputClass}>
+            <option value="">Не назначен{courierName && !courierUserId ? ' (ранее: ' + courierName + ')' : ''}</option>
+            {couriers.map((courier) => <option key={courier.id} value={courier.id}>{courier.name}</option>)}
+          </select>
         </label>
 
         <label className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">

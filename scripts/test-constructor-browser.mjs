@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-const base = process.env.LOTUS_TEST_URL ?? "http://127.0.0.1:3107";
+const base = process.env.LOTUS_CONSTRUCTOR_TEST_URL ?? process.env.LOTUS_TEST_URL ?? "http://127.0.0.1:3107";
 const profile = await mkdtemp(join(tmpdir(), "lotus-constructor-test-"));
 const chrome = spawn(process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe", [
   "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
@@ -20,12 +20,18 @@ const pending = new Map();
 const errors = [];
 async function until(check, message, timeout = 30000) {
   const deadline = Date.now() + timeout;
+  let lastError;
   while (Date.now() < deadline) {
-    const result = await check();
-    if (result) return result;
+    try {
+      const result = await check();
+      if (result) return result;
+    } catch (error) {
+      // Navigation can briefly destroy the previous JavaScript execution context.
+      lastError = error;
+    }
     await delay(150);
   }
-  throw new Error(message);
+  throw new Error(`${message}${lastError instanceof Error ? `: ${lastError.message}` : ""}`);
 }
 function send(method, params = {}) {
   const id = ++sequence;
@@ -91,14 +97,15 @@ try {
   }, "Map drag did not change saved geometry");
   assert.equal(moved.flowerId, before.flowerId);
   await evaluate("document.querySelector('[aria-label=\"Посмотреть букет\"]').click()");
-  await until(() => evaluate("!!document.querySelector('[aria-labelledby=\"bouquet-preview-title\"] svg')"), "Model-free preview must show a complete map");
-  assert.equal(await evaluate("document.querySelector('[aria-labelledby=\"bouquet-preview-title\"]').textContent.includes('3D-модель этого цветка пока не добавлена')"), true);
+  await until(() => evaluate("!!document.querySelector('[aria-labelledby=\"bouquet-preview-title\"] svg[aria-label^=\"Расположение цветов\"], [aria-labelledby=\"bouquet-preview-title\"] img[alt=\"PNG-превью созданного букета\"]')"), "Preview did not show a map or rendered bouquet");
+  const usedMapFallback = await evaluate("!!document.querySelector('[aria-labelledby=\"bouquet-preview-title\"] svg[aria-label^=\"Расположение цветов\"]')");
   await evaluate("document.querySelector('[aria-label=\"Закрыть превью\"]').click()");
   await evaluate("Array.from(document.querySelectorAll('button')).find((button) => button.textContent.trim() === 'Добавить в корзину').click()");
   const custom = await until(async () => (await cart()).find((item) => item.itemType === "custom-bouquet"), "Custom item not saved");
   assert.equal(custom.configuration.schemaVersion, 2);
   assert.deepEqual(custom.configuration.flowers[0].position, moved.position);
-  assert.equal(custom.thumbnail, undefined, "Do not present an incomplete 3D image as a complete bouquet");
+  if (usedMapFallback) assert.equal(custom.thumbnail, undefined, "Do not present an incomplete 3D image as a complete bouquet");
+  else assert.match(custom.thumbnail, /^data:image\//, "A fully rendered bouquet should keep its thumbnail");
   await send("Page.navigate", { url: `${base}/bouquet-builder?edit=${encodeURIComponent(custom.id)}` });
   await until(() => evaluate("document.body.textContent.includes('Вы редактируете авторский букет из корзины')"), "Edit did not load");
   await until(() => evaluate("document.querySelectorAll('svg[aria-label=\"Интерактивная карта букета, вид сверху\"] g[role=button]').length === 1"), "Saved stock flower disappeared");
