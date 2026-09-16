@@ -5,9 +5,21 @@ import type { PoolClient } from "pg";
 
 export const runtime = "nodejs";
 
-const allowedStatuses = ["pending", "paid"] as const;
+const allowedStatuses = ["pending", "paid", "refunded"] as const;
 
 type PaymentStatus = (typeof allowedStatuses)[number];
+
+function canChangePaymentStatus(
+  currentStatus: string,
+  nextStatus: PaymentStatus,
+) {
+  return (
+    currentStatus === nextStatus ||
+    (currentStatus === "pending" && nextStatus === "paid") ||
+    (currentStatus === "paid" &&
+      (nextStatus === "pending" || nextStatus === "refunded"))
+  );
+}
 
 export async function PATCH(
   request: Request,
@@ -136,6 +148,17 @@ export async function PATCH(
       });
     }
 
+    if (!canChangePaymentStatus(payment.status, body.status)) {
+      await client.query("ROLLBACK");
+      return Response.json(
+        {
+          success: false,
+          message: "Недопустимый переход статуса оплаты",
+        },
+        { status: 409 },
+      );
+    }
+
     const updated = await client.query<{
       id: string;
       order_id: string;
@@ -152,6 +175,8 @@ export async function PATCH(
     await audit(client, session.userId, "payment.status", id, {
       before: payment.status,
       after: body.status,
+      payment_id: payment.id,
+      order_id: payment.order_id,
     });
     await client.query("COMMIT");
 

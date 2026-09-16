@@ -888,7 +888,9 @@ export default async function AdminPage({
                       Статус оплаты:{" "}
                       {order.payment_status === "paid"
                         ? "Оплачен"
-                        : "Ожидает оплаты"}
+                        : order.payment_status === "refunded"
+                          ? "Возвращено"
+                          : "Ожидает оплаты"}
                     </p>
                   </section>
 

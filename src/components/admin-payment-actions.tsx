@@ -18,8 +18,15 @@ export function AdminPaymentActions({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
-  async function changePaymentStatus(status: "pending" | "paid") {
+  async function changePaymentStatus(status: "pending" | "paid" | "refunded") {
     setError("");
+
+    if (
+      status === "refunded" &&
+      !window.confirm("Подтвердить возврат оплаты? Это действие нельзя отменить.")
+    ) {
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -63,6 +70,7 @@ export function AdminPaymentActions({
   }
 
   const isPaid = currentStatus === "paid";
+  const isRefunded = currentStatus === "refunded";
   const isCancelled = orderStatus === "cancelled";
 
   return (
@@ -71,29 +79,46 @@ export function AdminPaymentActions({
         Управление оплатой
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-2 xl:justify-end">
-        <button
-          type="button"
-          disabled={isPending || isPaid || isCancelled}
-          onClick={() => changePaymentStatus("paid")}
-          className={`rounded-full border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed ${
-            isPaid
-              ? "border-green-700 bg-green-700 text-white"
-              : "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-          }`}
-        >
-          {isPaid ? "✓ Оплачен" : "Отметить оплаченным"}
-        </button>
+      {isRefunded ? (
+        <p className="mt-3 text-sm font-semibold text-[#806e68]">
+          Оплата возвращена
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2 xl:justify-end">
+          <button
+            type="button"
+            disabled={isPending || isPaid || isCancelled}
+            onClick={() => changePaymentStatus("paid")}
+            className={`rounded-full border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed ${
+              isPaid
+                ? "border-green-700 bg-green-700 text-white"
+                : "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+            }`}
+          >
+            {isPaid ? "✓ Оплачен" : "Отметить оплаченным"}
+          </button>
 
-        <button
-          type="button"
-          disabled={isPending || !isPaid || isCancelled}
-          onClick={() => changePaymentStatus("pending")}
-          className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Вернуть в ожидание
-        </button>
-      </div>
+          <button
+            type="button"
+            disabled={isPending || !isPaid || isCancelled}
+            onClick={() => changePaymentStatus("pending")}
+            className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Вернуть в ожидание
+          </button>
+
+          {isPaid && (
+            <button
+              type="button"
+              disabled={isPending || isCancelled}
+              onClick={() => changePaymentStatus("refunded")}
+              className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Отметить возврат
+            </button>
+          )}
+        </div>
+      )}
 
       {isCancelled && (
         <p className="mt-3 text-sm text-[#806e68]">

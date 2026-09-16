@@ -126,7 +126,7 @@ async function fixture() {
         order_id uuid, recipient_name text, recipient_phone text, city text, street_address text,
         apartment text, entrance text, floor text, delivery_comment text, requested_at timestamptz
       );
-      CREATE TEMP TABLE payments (order_id uuid, method text, status text, amount numeric);
+      CREATE TEMP TABLE payments (order_id uuid, method text CHECK (method IN ('cash', 'card', 'bank_transfer', 'wallet', 'transfer')), status text, amount numeric);
       INSERT INTO bouquets VALUES (1, 'Розы', 100, true), (9223372036854775807, 'Розы', 100, true);
       INSERT INTO flowers (id, name, stock_quantity, constructor_kind) VALUES (1, 'Роза', 100, 'rose');
       INSERT INTO bouquet_items VALUES (1, 1, 3), (9223372036854775807, 1, 3);
@@ -152,6 +152,50 @@ async function fixture() {
   };
   return { client, query, db, queries, snapshot };
 }
+
+test("cash and transfer payments are saved, unknown methods are rejected, and payment failures roll back", async () => {
+  const f = await fixture();
+  try {
+    const post = checkout(f.db);
+
+    const cash = orderBody();
+    cash.customer.phone = "906123456";
+    assert.equal((await submit(post, cash)).status, 200);
+
+    const transfer = orderBody();
+    transfer.customer.phone = "907123456";
+    transfer.paymentMethod = "transfer";
+    assert.equal((await submit(post, transfer)).status, 200);
+
+    const methods = (await f.client.query("SELECT method FROM pg_temp.payments")).rows.map((row) => row.method).sort();
+    assert.deepEqual(methods, ["cash", "transfer"]);
+
+    const unknown = orderBody();
+    unknown.customer.phone = "908123456";
+    unknown.paymentMethod = "bitcoin";
+    assert.equal((await submit(post, unknown)).status, 400);
+
+    const before = await f.snapshot();
+    const failingPost = checkout({
+      connect: async () => ({
+        query: (sql, values) => {
+          if (/INSERT INTO\s+(?:public\.)?payments/i.test(sql)) {
+            throw new Error("Artificial payment insert failure");
+          }
+          return f.query(sql, values);
+        },
+        release() {},
+      }),
+    });
+    const failed = orderBody();
+    failed.customer.phone = "909123456";
+    failed.paymentMethod = "transfer";
+    assert.equal((await submit(failingPost, failed)).status, 500);
+    assert.deepEqual(await f.snapshot(), before);
+  } finally {
+    await f.client.end();
+  }
+});
 
 test("recipient normalization and fallback, all cart types, text boundaries and bigint maximum", async () => {
   const f = await fixture();
