@@ -188,11 +188,14 @@ export default function Storefront({
         <BrandLogo />
 
         <nav>
-          <Link href="/catalog">
+          <Link className="constructorNavLink" href="/catalog">
             Каталог
           </Link>
-          <a href="#about">О нас</a>
-          <a href="#delivery">Доставка</a>
+          <Link className="constructorNavLink" href="/constructor">
+            Собрать букет
+          </Link>
+          <a className="constructorNavLink" href="#about">О нас</a>
+          <a className="constructorNavLink" href="#delivery">Доставка</a>
         </nav>
 
         <button
@@ -220,9 +223,14 @@ export default function Storefront({
             по Душанбе.
           </p>
 
-          <a className="primaryButton" href="#catalog">
-            Выбрать букет
-          </a>
+          <div className="heroActions">
+            <a className="primaryButton" href="#catalog">
+              Выбрать букет
+            </a>
+            <Link className="secondaryButton" href="/constructor">
+              Собрать свой букет
+            </Link>
+          </div>
         </div>
 
         <div className="heroVisual">
@@ -277,6 +285,35 @@ export default function Storefront({
                     +
                   </button>
                 </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="about" id="about">
+        <div className="aboutIntro">
+          <p className="eyebrow">О студии Lotus</p>
+          <h2>Цветы, собранные с вниманием</h2>
+          <p>
+            Lotus — цветочная студия в Душанбе, где можно выбрать готовый букет
+            или собрать собственную композицию из доступных цветов.
+          </p>
+          <Link className="primaryButton" href="/constructor">
+            Собрать букет
+          </Link>
+        </div>
+        <div className="aboutAdvantages">
+          {[
+            ["Свежие цветы", "Подбираем цветы для аккуратных и выразительных композиций."],
+            ["Индивидуальный подход", "Учитываем повод, настроение и пожелания к букету."],
+            ["Собственный букет", "В конструкторе можно выбрать цветы и собрать композицию самостоятельно."],
+          ].map(([title, text], index) => (
+            <article key={title}>
+              <span aria-hidden="true">0{index + 1}</span>
+              <div>
+                <h3>{title}</h3>
+                <p>{text}</p>
               </div>
             </article>
           ))}

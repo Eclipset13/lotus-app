@@ -3,7 +3,9 @@ import type { PoolClient } from "pg";
 
 export type AuditAction = "staff.create" | "staff.roles" | "staff.disable" | "staff.enable"
   | "staff.password_reset" | "staff.sessions_revoke" | "staff.password_change"
-  | "flower.prices" | "inventory.adjust" | "purchase.post" | "delivery.assign"
+  | "flower.create" | "flower.update" | "flower.activity" | "flower.prices" | "flower.delete"
+  | "category.create" | "category.update" | "category.activity" | "category.delete"
+  | "inventory.adjust" | "purchase.post" | "delivery.assign"
   | "order.status" | "delivery.status";
 // Call with the mutation's transaction. Never pass request bodies or credentials here.
 export async function audit(client: Pick<PoolClient, "query">, actorId: string, action: AuditAction,

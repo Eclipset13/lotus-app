@@ -33,7 +33,6 @@ type InventoryFlower = {
   image_url: string | null;
   is_active: boolean;
   last_movement_at: Date | null;
-  constructor_kind: string | null;
   reserved_quantity: number;
   available_quantity: number;
 };
@@ -95,6 +94,7 @@ export default async function AdminInventoryPage({
     activity?: string;
     category?: string;
     sort?: string;
+    message?: string;
   }>;
 }) {
   const session = await requirePermission("inventory.read");
@@ -193,7 +193,6 @@ export default async function AdminInventoryPage({
                f.min_stock_quantity,
                f.image_url,
                f.is_active,
-               f.constructor_kind,
                COALESCE(ar.reserved_quantity, 0)::int AS reserved_quantity,
                GREATEST(f.stock_quantity - COALESCE(ar.reserved_quantity, 0), 0)::int AS available_quantity,
                lm.last_movement_at
@@ -238,7 +237,21 @@ export default async function AdminInventoryPage({
             Остатки цветов, дефицит и история складских операций Lotus.
           </p>
           <AdminNavigation />
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link href="/admin/inventory/new" className="inline-flex h-12 items-center rounded-2xl bg-[#342622] px-5 text-sm font-semibold text-white transition hover:bg-[#4b3731]">
+              Добавить цветок
+            </Link>
+            <Link href="/admin/inventory/categories" className="inline-flex h-12 items-center rounded-2xl border border-[#ead8d1] bg-white px-5 text-sm font-semibold text-[#806e68] transition hover:bg-[#fff4f1]">
+              Категории
+            </Link>
+          </div>
         </header>
+
+        {params.message === "flower-deleted" && (
+          <p role="status" className="mt-6 rounded-2xl bg-green-50 px-5 py-4 text-sm font-semibold text-green-700">
+            Цветок удалён
+          </p>
+        )}
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
@@ -367,11 +380,6 @@ export default async function AdminInventoryPage({
                               <p className="font-semibold">{flower.name}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[#99817a]">
                                 <span>{flower.is_active ? "Активен" : "Неактивен"}</span>
-                                {flower.constructor_kind && (
-                                  <span className="rounded-full bg-[#fbe5e8] px-2 py-0.5 font-semibold text-[#9d4255]">
-                                    Старый конструктор: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
-                                  </span>
-                                )}
                               </div>
                             </div>
                           </div>

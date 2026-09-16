@@ -8,6 +8,8 @@ import { AdminStockReadonly } from "@/components/admin-stock-readonly";
 import { AdminFlowerPrices } from "@/components/admin-flower-prices";
 import { db } from "@/lib/db";
 import { AdminFlowerModel } from "@/components/admin-flower-model";
+import { AdminFlowerActivity } from "@/components/admin-flower-activity";
+import { AdminFlowerDetailsForm } from "@/components/admin-flower-details-form";
 import { sanitizeStoredFlowerModel } from "@/lib/flower-model";
 
 export const runtime = "nodejs";
@@ -20,7 +22,11 @@ type Flower = {
   model_3d: unknown;
   id: string;
   name: string;
+  slug: string;
+  category_id: string | null;
   category_name: string | null;
+  description: string | null;
+  color: string | null;
   unit: string;
   purchase_price: string;
   sale_price: string;
@@ -28,10 +34,11 @@ type Flower = {
   min_stock_quantity: number;
   image_url: string | null;
   is_active: boolean;
-  constructor_kind: string | null;
   reserved_quantity: number;
   available_quantity: number;
 };
+
+type Category = { id: string; name: string; is_active: boolean };
 
 type StockMovement = {
   id: string;
@@ -128,7 +135,7 @@ export default async function InventoryFlowerPage({
   searchParams,
 }: {
   params: Promise<{ flowerId: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; message?: string }>;
 }) {
   const session = await requirePermission("inventory.read");
   if (!hasPermission(session.roles, "inventory.manage")) return <AdminStockReadonly flowerId={(await params).flowerId} />;
@@ -137,14 +144,19 @@ export default async function InventoryFlowerPage({
   if (!isDatabaseId(flowerId)) {
     return <MissingFlower />;
   }
-  const requestedPage = parsePage((await searchParams).page);
+  const query = await searchParams;
+  const requestedPage = parsePage(query.page);
 
-  const [flowerResult, countResult, reservationsResult] = await Promise.all([
+  const [flowerResult, countResult, reservationsResult, categoriesResult] = await Promise.all([
     db.query<Flower>(
       `
         SELECT f.id::text,
                f.name,
+               f.slug,
+               f.category_id::text,
                c.name AS category_name,
+               f.description,
+               f.color,
                f.unit,
                f.purchase_price::text,
                f.sale_price::text,
@@ -152,7 +164,6 @@ export default async function InventoryFlowerPage({
                f.min_stock_quantity,
                f.image_url,
                f.is_active,
-               f.constructor_kind,
                to_jsonb(f)->'model_3d' AS model_3d,
                COALESCE(active_reservations.reserved_quantity, 0)::int AS reserved_quantity,
                GREATEST(f.stock_quantity - COALESCE(active_reservations.reserved_quantity, 0), 0)::int AS available_quantity
@@ -192,6 +203,11 @@ export default async function InventoryFlowerPage({
       `,
       [flowerId],
     ),
+    db.query<Category>(`
+      SELECT id::text, name, is_active
+      FROM public.categories
+      ORDER BY sort_order, name
+    `),
   ]);
 
   const flower = flowerResult.rows[0];
@@ -246,6 +262,12 @@ export default async function InventoryFlowerPage({
           <AdminNavigation />
         </header>
 
+        {(query.message === "created" || query.message === "updated") && (
+          <p role="status" className="mt-6 rounded-2xl bg-green-50 px-5 py-4 text-sm font-semibold text-green-700">
+            {query.message === "created" ? "Цветок создан" : "Основные данные сохранены"}
+          </p>
+        )}
+
         <section className="mt-8 grid gap-6 rounded-[28px] border border-[#f0dfd9] bg-white p-6 md:grid-cols-[180px_1fr] md:p-8">
           {flower.image_url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -262,11 +284,6 @@ export default async function InventoryFlowerPage({
               <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${flower.is_active ? "bg-green-50 text-green-700" : "bg-[#f5ece9] text-[#9a746c]"}`}>
                 {flower.is_active ? "Активен" : "Неактивен"}
               </span>
-              {flower.constructor_kind && (
-                <span className="rounded-full bg-[#fbe5e8] px-3 py-1.5 text-xs font-semibold text-[#9d4255]">
-                  Старый конструктор: {{ rose: "Роза", peony: "Пион", tulip: "Тюльпан" }[flower.constructor_kind] ?? flower.constructor_kind}
-                </span>
-              )}
             </div>
             <dl className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               <div>
@@ -305,15 +322,22 @@ export default async function InventoryFlowerPage({
           </div>
         </section>
 
-        <AdminFlowerModel flowerId={flower.id} initialModel={sanitizeStoredFlowerModel(flower.model_3d)} />
+        <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_0.75fr]">
+          <AdminFlowerDetailsForm categories={categoriesResult.rows} flower={flower} />
+          <AdminFlowerActivity flowerId={flower.id} isActive={flower.is_active} />
+        </div>
 
-        <AdminFlowerPrices flowerId={flower.id} purchasePrice={flower.purchase_price} salePrice={flower.sale_price} />
+        {hasPermission(session.roles, "models.manage") && (
+          <AdminFlowerModel flowerId={flower.id} initialModel={sanitizeStoredFlowerModel(flower.model_3d)} />
+        )}
+
+        {hasPermission(session.roles, "prices.manage") && (
+          <AdminFlowerPrices flowerId={flower.id} purchasePrice={flower.purchase_price} salePrice={flower.sale_price} />
+        )}
 
         <AdminInventoryControls
           flowerId={flower.id}
           stockQuantity={flower.stock_quantity}
-        minimumStock={flower.min_stock_quantity}
-        constructorKind={flower.constructor_kind}
         />
 
         <section className="mt-6 overflow-hidden rounded-[28px] border border-[#f0dfd9] bg-white">

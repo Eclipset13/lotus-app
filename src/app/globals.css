@@ -102,6 +102,23 @@ a {
   color: var(--dark-pink);
 }
 
+.header nav a {
+  border-radius: 100px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.header nav .constructorNavLink {
+  margin: -9px -13px;
+  padding: 9px 13px;
+  background: var(--light-pink);
+  color: #9f5262;
+  font-weight: 700;
+}
+
+.header nav .constructorNavLink:hover {
+  background: #f5d9de;
+}
+
 .cartButton {
   min-height: 44px;
   border: 1px solid #ead8d2;
@@ -167,6 +184,29 @@ h1 span {
 
 .primaryButton:hover {
   background: var(--dark-pink);
+  transform: translateY(-2px);
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.secondaryButton {
+  display: inline-block;
+  padding: 16px 27px;
+  border: 1px solid rgba(52, 38, 34, 0.18);
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--text);
+  transition: 0.25s;
+}
+
+.secondaryButton:hover {
+  border-color: var(--dark-pink);
+  background: var(--white);
+  color: var(--dark-pink);
   transform: translateY(-2px);
 }
 
@@ -330,6 +370,78 @@ h1 span {
   cursor: pointer;
 }
 
+.about {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto 110px;
+  padding: 72px;
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 76px;
+  border: 1px solid #f0dfd9;
+  border-radius: 38px;
+  background: linear-gradient(145deg, #fff, #fff1ed);
+}
+
+.aboutIntro h2 {
+  max-width: 520px;
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: clamp(38px, 4vw, 54px);
+  font-weight: 400;
+  line-height: 1.08;
+}
+
+.aboutIntro > p:not(.eyebrow) {
+  max-width: 550px;
+  margin: 24px 0 30px;
+  color: #725f59;
+  line-height: 1.75;
+}
+
+.aboutAdvantages {
+  display: grid;
+  align-content: center;
+}
+
+.aboutAdvantages article {
+  padding: 24px 0;
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 18px;
+  border-bottom: 1px solid #ead8d2;
+}
+
+.aboutAdvantages article:last-child {
+  border-bottom: 0;
+}
+
+.aboutAdvantages span {
+  color: var(--pink);
+  font-family: Georgia, serif;
+  font-size: 21px;
+}
+
+.aboutAdvantages h3 {
+  margin: 0 0 7px;
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+}
+
+.aboutAdvantages p {
+  margin: 0;
+  color: #806e68;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.header nav a:focus-visible,
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible {
+  outline: 2px solid var(--dark-pink);
+  outline-offset: 4px;
+}
+
 @media (max-width: 900px) {
   .header nav {
     display: none;
@@ -347,6 +459,12 @@ h1 span {
   .bouquetGrid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .about {
+    padding: 50px 38px;
+    grid-template-columns: 1fr;
+    gap: 35px;
+  }
 }
 
 @media (max-width: 600px) {
@@ -359,7 +477,8 @@ h1 span {
   }
 
   .hero,
-  .catalog {
+  .catalog,
+  .about {
     width: calc(100% - 28px);
   }
 
@@ -379,6 +498,12 @@ h1 span {
 
   .catalog {
     padding: 75px 0;
+  }
+
+  .about {
+    margin-bottom: 75px;
+    padding: 38px 22px;
+    border-radius: 28px;
   }
 
   .sectionHeading {
