@@ -1035,6 +1035,7 @@ export default async function AdminPage({
                       orderId={order.id}
                       orderNumber={order.order_number}
                       currentStatus={order.status}
+                      paymentStatus={order.payment_status}
                       fulfillmentType={order.fulfillment_type}
                       deliveryStatus={order.delivery_status}
                       courierUserId={order.courier_user_id}

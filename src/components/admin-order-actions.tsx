@@ -12,6 +12,7 @@ type AdminOrderActionsProps = {
     orderId: string;
     orderNumber: string;
     currentStatus: string;
+    paymentStatus: string | null;
     fulfillmentType: string;
     deliveryStatus: string | null;
     courierUserId: string | null;
@@ -61,6 +62,7 @@ export function AdminOrderActions({
     orderId,
     orderNumber,
     currentStatus,
+    paymentStatus,
     fulfillmentType,
     deliveryStatus,
     courierUserId,
@@ -155,6 +157,7 @@ export function AdminOrderActions({
     const visibleTransitions = (isOrderStatus(currentStatus) ? ORDER_STATUS_TRANSITIONS[currentStatus] : []).filter(
         (nextStatus) => {
             if (!isOrderStatus(currentStatus) || !canTransitionOrderStatus(currentStatus, nextStatus, fulfillmentType) || !canWorkOrder(roles, currentStatus, nextStatus)) return false;
+            if (nextStatus === "cancelled" && paymentStatus === "paid") return false;
             if (fulfillmentType !== "delivery") return true;
             if (currentStatus === "ready" && nextStatus === "completed") {
                 return false;
@@ -168,6 +171,11 @@ export function AdminOrderActions({
             return true;
         },
     );
+    const canCancel = isOrderStatus(currentStatus) &&
+        ORDER_STATUS_TRANSITIONS[currentStatus].includes("cancelled") &&
+        canTransitionOrderStatus(currentStatus, "cancelled", fulfillmentType) &&
+        canWorkOrder(roles, currentStatus, "cancelled");
+    const paymentReturnRequired = paymentStatus === "paid" && canCancel;
     const showDeliveryManagement =
         canManageDelivery && fulfillmentType === "delivery" &&
         ["ready", "delivering"].includes(currentStatus);
@@ -205,6 +213,11 @@ export function AdminOrderActions({
                 {visibleTransitions.length === 0 && !showDeliveryManagement && (
                     <p className="text-sm text-[#806e68]">
                         Для этого статуса дальнейшие переходы недоступны.
+                    </p>
+                )}
+                {paymentReturnRequired && (
+                    <p className="text-sm text-[#806e68]">
+                        Сначала отметьте возврат оплаты
                     </p>
                 )}
             </div>

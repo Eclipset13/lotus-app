@@ -24,6 +24,10 @@ type LockedOrder = {
   fulfillment_type: "delivery" | "pickup";
 };
 
+type LockedPayment = {
+  status: string;
+};
+
 type LockedDelivery = {
   id: string;
   status: string;
@@ -500,6 +504,30 @@ export async function PATCH(
       throw new StatusTransitionError(
         "Недопустимый переход статуса заказа",
       );
+    }
+
+    if (body.status === "cancelled") {
+      const paymentResult = await client.query<LockedPayment>(
+        `
+          SELECT status
+          FROM public.payments
+          WHERE order_id = $1::uuid
+          ORDER BY created_at DESC
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [order.id],
+      );
+      if (paymentResult.rows[0]?.status === "paid") {
+        await client.query("ROLLBACK");
+        return Response.json(
+          {
+            success: false,
+            message: "Сначала оформите возврат оплаты, затем отмените заказ",
+          },
+          { status: 409 },
+        );
+      }
     }
     const lockedDelivery = await validateAndLockDeliveryTransition(
       client,

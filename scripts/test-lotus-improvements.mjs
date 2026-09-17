@@ -65,8 +65,8 @@ test("pickup and delivery UI buttons share the server transition policy", () => 
     "next/navigation": { useRouter: () => ({ refresh() {} }) },
     "next/link": (props) => React.createElement("a", props),
   });
-  const render = (fulfillmentType, roles = ["super_admin"], status = "ready", deliveryStatus = "assigned") => renderToStaticMarkup(React.createElement(AdminOrderActions, {
-    roles, canManageDelivery: permissions.hasPermission(roles, "deliveries.manage"), orderId: id(1), orderNumber: "TEST", currentStatus: status, fulfillmentType, deliveryStatus, courierUserId: id(2),
+  const render = (fulfillmentType, roles = ["super_admin"], status = "ready", deliveryStatus = "assigned", paymentStatus = null) => renderToStaticMarkup(React.createElement(AdminOrderActions, {
+    roles, canManageDelivery: permissions.hasPermission(roles, "deliveries.manage"), orderId: id(1), orderNumber: "TEST", currentStatus: status, paymentStatus, fulfillmentType, deliveryStatus, courierUserId: id(2),
   }));
   assert.doesNotMatch(render("pickup"), /Доставляется|Управлять доставкой/);
   assert.match(render("pickup"), /Выполнен/);
@@ -74,6 +74,8 @@ test("pickup and delivery UI buttons share the server transition policy", () => 
   assert.doesNotMatch(render("delivery"), /Выполнен/);
   assert.match(render("delivery", ["super_admin"], "delivering", "on_the_way"), /Выполнен/);
   assert.doesNotMatch(render("delivery", ["florist"]), /Доставляется|Управлять доставкой|Выполнен/);
+  assert.doesNotMatch(render("pickup", ["super_admin"], "ready", "assigned", "paid"), /Отменить/);
+  assert.match(render("pickup", ["super_admin"], "ready", "assigned", "paid"), /Сначала отметьте возврат оплаты/);
   assert.equal(transitions.canTransitionOrderStatus("ready", "delivering", "pickup"), false);
   assert.equal(transitions.canTransitionOrderStatus("ready", "completed", "pickup"), true);
   assert.equal(transitions.canTransitionOrderStatus("ready", "completed", "delivery"), false);
@@ -120,7 +122,7 @@ async function fixture() {
     CREATE TEMP TABLE stock_movements (id bigint GENERATED ALWAYS AS IDENTITY, flower_id bigint, supplier_id bigint, purchase_id bigint, movement_type text, quantity_change int, unit_cost numeric, note text);
     CREATE FUNCTION pg_temp.test_stock() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE pg_temp.flowers SET stock_quantity=stock_quantity+NEW.quantity_change WHERE id=NEW.flower_id; RETURN NEW; END $$;
     CREATE TRIGGER test_stock AFTER INSERT ON pg_temp.stock_movements FOR EACH ROW EXECUTE FUNCTION pg_temp.test_stock();
-    CREATE TEMP TABLE order_stock_reservations (flower_id bigint, quantity int, status text);
+    CREATE TEMP TABLE order_stock_reservations (order_id uuid, flower_id bigint, quantity int, status text, released_at timestamptz, updated_at timestamptz);
     CREATE TEMP TABLE suppliers (id bigint PRIMARY KEY, is_active boolean);
     CREATE TEMP TABLE purchases (id bigint PRIMARY KEY, supplier_id bigint, document_number text, status text, confirmed_at timestamptz,received_at timestamptz,updated_at timestamptz);
     CREATE TEMP TABLE purchase_items (purchase_id bigint,flower_id bigint,quantity int,unit_cost numeric);
@@ -480,7 +482,7 @@ test("flower deletion is confirmed, permission-checked, and refuses every histor
       [92, async () => f.client.query("INSERT INTO pg_temp.bouquet_items VALUES(1,92,1)"), 0, null],
       [93, async () => f.client.query("INSERT INTO pg_temp.purchase_items VALUES(1,93,1,10)"), 0, null],
       [94, async () => f.client.query("INSERT INTO pg_temp.stock_movements(flower_id,movement_type,quantity_change) VALUES(94,'correction',0)"), 0, null],
-      [95, async () => f.client.query("INSERT INTO pg_temp.order_stock_reservations VALUES(95,1,'released')"), 0, null],
+      [95, async () => f.client.query("INSERT INTO pg_temp.order_stock_reservations(flower_id,quantity,status) VALUES(95,1,'released')"), 0, null],
       [96, async () => f.client.query("INSERT INTO pg_temp.order_items(flower_id) VALUES(96)"), 0, null],
       [97, async () => f.client.query(`INSERT INTO pg_temp.order_items(custom_configuration) VALUES('{"schemaVersion":2,"flowers":[{"flowerId":"97"}]}'::jsonb)`), 0, null],
       [98, async () => f.client.query(`INSERT INTO pg_temp.order_items(custom_summary) VALUES('{"flowers":[{"flowerId":"98"}]}'::jsonb)`), 0, null],
@@ -541,6 +543,57 @@ test("direct status API blocks pickup delivering, completes pickup, preserves ad
     f.setSession({userId:id(2),roles:["florist"]});
     assert.equal((await status(request({status:"cancelled"}),ctx(11))).status,403);
   } finally {await f.close();}
+});
+
+test("order cancellation requires refunded payment and preserves transactional reserve behavior", async () => {
+  const f = await fixture();
+  try {
+    const status = loadTs("src/app/api/admin/orders/[id]/status/route.ts", f.actionsOverrides).PATCH;
+    await f.client.query("INSERT INTO pg_temp.orders(id,order_number,status,fulfillment_type) VALUES ($1,'PAID','confirmed','pickup'),($2,'REFUNDED','confirmed','pickup'),($3,'PENDING','confirmed','pickup'),($4,'NO-PAYMENT','confirmed','pickup'),($5,'REPEAT','confirmed','pickup'),($6,'SQL-ERROR','confirmed','pickup')", [id(30), id(31), id(32), id(33), id(34), id(35)]);
+    await f.client.query("INSERT INTO pg_temp.payments(id,order_id,method,status,amount) VALUES ($1,$2,'cash','paid',100),($3,$4,'cash','refunded',200),($5,$6,'cash','pending',300),($7,$8,'cash','pending',400),($9,$10,'cash','pending',500)", [id(40), id(30), id(41), id(31), id(42), id(32), id(43), id(34), id(44), id(35)]);
+    await f.client.query("INSERT INTO pg_temp.order_stock_reservations(order_id,flower_id,quantity,status) VALUES ($1,1,2,'active'),($2,1,2,'active'),($3,1,2,'active'),($4,1,2,'active'),($5,1,2,'active')", [id(30), id(31), id(32), id(34), id(35)]);
+
+    let response = await status(request({ status: "cancelled" }), ctx(30));
+    assert.equal(response.status, 409);
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.orders WHERE id=$1", [id(30)])).rows[0].status, "confirmed");
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.payments WHERE order_id=$1", [id(30)])).rows[0].status, "paid");
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.order_stock_reservations WHERE order_id=$1", [id(30)])).rows[0].status, "active");
+
+    for (const orderId of [31, 32, 33]) {
+      response = await status(request({ status: "cancelled" }), ctx(orderId));
+      assert.equal(response.status, 200, String(orderId));
+    }
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.order_stock_reservations WHERE order_id=$1", [id(31)])).rows[0].status, "released");
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.orders WHERE id=$1", [id(33)])).rows[0].status, "cancelled");
+
+    response = await status(request({ status: "cancelled" }), ctx(34));
+    assert.equal(response.status, 200);
+    response = await status(request({ status: "cancelled" }), ctx(34));
+    assert.equal(response.status, 200);
+    assert.equal((await f.client.query("SELECT count(*)::int AS n FROM pg_temp.order_stock_reservations WHERE order_id=$1 AND status='released'", [id(34)])).rows[0].n, 1);
+
+    f.setSession({ userId: id(2), roles: ["courier"] });
+    response = await status(request({ status: "cancelled" }), ctx(35));
+    assert.equal(response.status, 403);
+
+    f.setSession({ userId: id(1), roles: ["super_admin"] });
+    const failingStatus = loadTs("src/app/api/admin/orders/[id]/status/route.ts", {
+      ...f.actionsOverrides,
+      "@/lib/db": { db: { connect: async () => ({
+        query: (sql, values) => /UPDATE public\.orders/i.test(sql)
+          ? Promise.reject(new Error("Artificial order update failure"))
+          : f.db.query(sql, values),
+        release() {},
+      }) } },
+    }).PATCH;
+    response = await failingStatus(request({ status: "cancelled" }), ctx(35));
+    assert.equal(response.status, 500);
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.orders WHERE id=$1", [id(35)])).rows[0].status, "confirmed");
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.payments WHERE order_id=$1", [id(35)])).rows[0].status, "pending");
+    assert.equal((await f.client.query("SELECT status FROM pg_temp.order_stock_reservations WHERE order_id=$1", [id(35)])).rows[0].status, "active");
+  } finally {
+    await f.close();
+  }
 });
 
 test("personal passwords and opaque hashed sessions, disabled access, resets, expiry, last super protection, rate limits", async () => {
