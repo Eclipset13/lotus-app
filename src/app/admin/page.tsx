@@ -12,8 +12,6 @@ import {
   AdminBouquetViewButton,
 } from "@/components/admin-bouquet-viewer";
 import { BrandLogo } from "@/components/brand-logo";
-import { AdminLogoutButton } from "@/components/admin-logout-button";
-import Link from "next/link";
 import {
   createCustomBouquetSummary,
   formatCustomBouquetComposition,
@@ -592,16 +590,6 @@ export default async function AdminPage({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="rounded-full border border-[#ead8d2] bg-white px-5 py-3 text-sm"
-            >
-              Открыть магазин
-            </Link>
-
-            <AdminLogoutButton className="rounded-full bg-[#342622] text-white hover:bg-[#b85d70]" />
-          </div>
           <AdminNavigation />
         </header>
 

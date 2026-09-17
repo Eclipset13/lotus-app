@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { PoolClient } from "pg";
 import { requirePermission } from "@/lib/admin-auth";
+import { audit } from "@/lib/admin-audit";
 import { db } from "@/lib/db";
 
 export type ProductActionState = { error: string };
@@ -152,7 +153,7 @@ export async function createProduct(
   _previousState: ProductActionState,
   formData: FormData,
 ): Promise<ProductActionState> {
-  await requirePermission("products.manage");
+  const session = await requirePermission("products.manage");
 
   let values: ReturnType<typeof parseBouquetForm>;
   try {
@@ -188,6 +189,14 @@ export async function createProduct(
       bouquetResult.rows[0].id,
       values.composition,
     );
+    await audit(client, session.userId, "bouquet.create", bouquetResult.rows[0].id, {
+      after: {
+        name: values.name,
+        sale_price: values.price,
+        is_active: values.isActive,
+        composition: values.composition.map((item) => ({ flower_id: item.flowerId, quantity: item.quantity })),
+      },
+    });
     await client.query("COMMIT");
   } catch (error) {
     if (client) {
@@ -211,7 +220,7 @@ export async function updateProduct(
   _previousState: ProductActionState,
   formData: FormData,
 ): Promise<ProductActionState> {
-  await requirePermission("products.manage");
+  const session = await requirePermission("products.manage");
   if (!isDatabaseId(productId)) return { error: "Букет не найден" };
 
   let values: ReturnType<typeof parseBouquetForm>;
@@ -225,15 +234,41 @@ export async function updateProduct(
   try {
     client = await db.connect();
     await client.query("BEGIN");
-    const bouquetResult = await client.query(
-      "SELECT id FROM public.bouquets WHERE id = $1::bigint FOR UPDATE",
+    const bouquetResult = await client.query<{
+      name: string;
+      description: string | null;
+      sale_price: string;
+      image_url: string | null;
+      is_active: boolean;
+      composition: Array<{ flower_id: string; quantity: number }>;
+    }>(
+      `SELECT bouquet.name, bouquet.description, bouquet.sale_price::text,
+              bouquet.image_url, bouquet.is_active,
+              COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                'flower_id', item.flower_id::text, 'quantity', item.quantity
+              ) ORDER BY item.flower_id) FROM public.bouquet_items AS item
+                WHERE item.bouquet_id=bouquet.id), '[]'::jsonb) AS composition
+       FROM public.bouquets AS bouquet WHERE bouquet.id = $1::bigint FOR UPDATE`,
       [productId],
     );
     if (bouquetResult.rowCount !== 1) {
       throw new ProductValidationError("Букет не найден");
     }
-    await verifyFlowers(client, values.composition);
-    await client.query(
+    const before = bouquetResult.rows[0];
+    const nextComposition = values.composition
+      .map((item) => ({ flower_id: item.flowerId, quantity: item.quantity }))
+      .sort((first, second) => BigInt(first.flower_id) < BigInt(second.flower_id) ? -1 : 1);
+    const beforeComposition = [...before.composition]
+      .sort((first, second) => BigInt(first.flower_id) < BigInt(second.flower_id) ? -1 : 1);
+    const compositionChanged = beforeComposition.length !== nextComposition.length ||
+      beforeComposition.some((item, index) => item.flower_id !== nextComposition[index].flower_id ||
+        Number(item.quantity) !== nextComposition[index].quantity);
+    const changed = before.name !== values.name || before.description !== values.description ||
+      before.image_url !== values.imageUrl || before.is_active !== values.isActive ||
+      Number(before.sale_price) !== values.price ||
+      compositionChanged;
+    if (changed) await verifyFlowers(client, values.composition);
+    if (changed) await client.query(
       `
         UPDATE public.bouquets
         SET name = $1, description = $2, sale_price = $3,
@@ -249,7 +284,21 @@ export async function updateProduct(
         productId,
       ],
     );
-    await replaceComposition(client, productId, values.composition);
+    if (changed) await replaceComposition(client, productId, values.composition);
+    if (changed) await audit(client, session.userId, "bouquet.update", productId, {
+      before: {
+        name: before.name,
+        sale_price: before.sale_price,
+        is_active: before.is_active,
+        composition: before.composition,
+      },
+      after: {
+        name: values.name,
+        sale_price: values.price,
+        is_active: values.isActive,
+        composition: nextComposition,
+      },
+    });
     await client.query("COMMIT");
   } catch (error) {
     if (client) {
@@ -269,27 +318,32 @@ export async function updateProduct(
 }
 
 export async function toggleProductVisibility(productId: string) {
-  await requirePermission("products.manage");
+  const session = await requirePermission("products.manage");
   if (!isDatabaseId(productId)) return;
 
+  let client: PoolClient | null = null;
   try {
-    await db.query(
-      `
-        UPDATE public.bouquets AS b
-        SET is_active = CASE
-              WHEN b.is_active THEN FALSE
-              ELSE EXISTS (
-                SELECT 1 FROM public.bouquet_items bi
-                WHERE bi.bouquet_id = b.id
-              )
-            END,
-            updated_at = NOW()
-        WHERE b.id = $1::bigint
-      `,
-      [productId],
-    );
+    client = await db.connect();
+    await client.query("BEGIN");
+    const current = await client.query<{ is_active: boolean; next_active: boolean }>(`
+      SELECT bouquet.is_active,
+             CASE WHEN bouquet.is_active THEN FALSE ELSE EXISTS (
+               SELECT 1 FROM public.bouquet_items AS item WHERE item.bouquet_id=bouquet.id
+             ) END AS next_active
+      FROM public.bouquets AS bouquet
+      WHERE bouquet.id=$1::bigint
+      FOR UPDATE`, [productId]);
+    const state = current.rows[0];
+    if (state && state.is_active !== state.next_active) {
+      await client.query("UPDATE public.bouquets SET is_active=$2,updated_at=NOW() WHERE id=$1::bigint", [productId, state.next_active]);
+      await audit(client, session.userId, "bouquet.activity", productId, { before: state.is_active, after: state.next_active });
+    }
+    await client.query("COMMIT");
   } catch (error) {
+    await client?.query("ROLLBACK").catch(() => {});
     console.error("toggleProductVisibility failed:", error);
+  } finally {
+    client?.release();
   }
 
   revalidatePath("/admin/products");

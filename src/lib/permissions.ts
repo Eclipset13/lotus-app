@@ -28,6 +28,7 @@ export const ADMIN_SECTIONS: { href: string; label: string; icon: string; permis
   { href: "/admin/purchases", label: "Поступления", icon: "🚚", permission: "purchases.manage", exact: false },
   { href: "/admin/inventory", label: "Склад", icon: "🌿", permission: "inventory.read", exact: false },
   { href: "/admin/staff", label: "Сотрудники", icon: "👤", permission: "staff.manage", exact: false },
+  { href: "/admin/audit", label: "Журнал", icon: "🧾", permission: "settings.manage", exact: false },
 ];
 export function allowedSections(roles: readonly string[]) {
   return ADMIN_SECTIONS.filter((item) => hasPermission(roles, item.permission));

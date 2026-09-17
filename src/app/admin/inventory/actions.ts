@@ -280,15 +280,20 @@ export async function updateFlowerDetails(
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const locked = await client.query("SELECT id FROM public.flowers WHERE id=$1::bigint FOR UPDATE", [flowerId]);
+    const locked = await client.query<{ category_id: string | null; name: string; slug: string; description: string | null; color: string | null; unit: string; min_stock_quantity: number; image_url: string | null }>(
+      `SELECT category_id::text,name,slug,description,color,unit,min_stock_quantity,image_url
+       FROM public.flowers WHERE id=$1::bigint FOR UPDATE`, [flowerId]);
     if (!locked.rows.length) throw new InventoryValidationError("Цветок не найден");
-    await client.query(`UPDATE public.flowers SET category_id=$2::bigint, name=$3, slug=$4,
+    const before = locked.rows[0];
+    const after = { category_id: input.categoryId, name: input.name, slug: input.slug,
+      description: input.description, color: input.color, unit: input.unit,
+      min_stock_quantity: input.minimumStock, image_url: input.imageUrl };
+    const changed = JSON.stringify(before) !== JSON.stringify(after);
+    if (changed) await client.query(`UPDATE public.flowers SET category_id=$2::bigint, name=$3, slug=$4,
       description=$5, color=$6, unit=$7, min_stock_quantity=$8, image_url=$9, updated_at=NOW()
       WHERE id=$1::bigint`, [flowerId, input.categoryId, input.name, input.slug, input.description,
       input.color, input.unit, input.minimumStock, input.imageUrl]);
-    await audit(client, session.userId, "flower.update", flowerId, {
-      fields: ["category_id", "name", "slug", "description", "color", "unit", "min_stock_quantity", "image_url"],
-    });
+    if (changed) await audit(client, session.userId, "flower.update", flowerId, { before, after });
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -311,9 +316,12 @@ export async function setFlowerActivity(
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const result = await client.query("UPDATE public.flowers SET is_active=$2,updated_at=NOW() WHERE id=$1::bigint RETURNING id", [flowerId, active]);
-    if (!result.rows.length) throw new InventoryValidationError("Цветок не найден");
-    await audit(client, session.userId, "flower.activity", flowerId, { active });
+    const current = await client.query<{ is_active: boolean }>("SELECT is_active FROM public.flowers WHERE id=$1::bigint FOR UPDATE", [flowerId]);
+    if (!current.rows.length) throw new InventoryValidationError("Цветок не найден");
+    if (current.rows[0].is_active !== active) {
+      await client.query("UPDATE public.flowers SET is_active=$2,updated_at=NOW() WHERE id=$1::bigint", [flowerId, active]);
+      await audit(client, session.userId, "flower.activity", flowerId, { before: current.rows[0].is_active, after: active });
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -440,10 +448,15 @@ export async function updateCategory(categoryId: string, _previousState: Invento
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const result = await client.query(`UPDATE public.categories SET name=$2,slug=$3,sort_order=$4
-      WHERE id=$1::bigint RETURNING id`, [categoryId, parsed.value.name, parsed.value.slug, parsed.value.sortOrder]);
-    if (!result.rows.length) throw new InventoryValidationError("Категория не найдена");
-    await audit(client, session.userId, "category.update", categoryId, { fields: ["name", "slug", "sort_order"] });
+    const current = await client.query<{ name: string; slug: string; sort_order: number }>(
+      "SELECT name,slug,sort_order FROM public.categories WHERE id=$1::bigint FOR UPDATE", [categoryId]);
+    if (!current.rows.length) throw new InventoryValidationError("Категория не найдена");
+    const after = { name: parsed.value.name, slug: parsed.value.slug, sort_order: parsed.value.sortOrder };
+    if (JSON.stringify(current.rows[0]) !== JSON.stringify(after)) {
+      await client.query(`UPDATE public.categories SET name=$2,slug=$3,sort_order=$4
+        WHERE id=$1::bigint`, [categoryId, parsed.value.name, parsed.value.slug, parsed.value.sortOrder]);
+      await audit(client, session.userId, "category.update", categoryId, { before: current.rows[0], after });
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -462,9 +475,12 @@ export async function setCategoryActivity(categoryId: string, _previousState: In
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const result = await client.query("UPDATE public.categories SET is_active=$2 WHERE id=$1::bigint RETURNING id", [categoryId, active]);
-    if (!result.rows.length) throw new InventoryValidationError("Категория не найдена");
-    await audit(client, session.userId, "category.activity", categoryId, { active });
+    const current = await client.query<{ is_active: boolean }>("SELECT is_active FROM public.categories WHERE id=$1::bigint FOR UPDATE", [categoryId]);
+    if (!current.rows.length) throw new InventoryValidationError("Категория не найдена");
+    if (current.rows[0].is_active !== active) {
+      await client.query("UPDATE public.categories SET is_active=$2 WHERE id=$1::bigint", [categoryId, active]);
+      await audit(client, session.userId, "category.activity", categoryId, { before: current.rows[0].is_active, after: active });
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -513,8 +529,10 @@ export async function updateFlowerPrices(flowerId: string, _previous: InventoryA
     const before = await client.query<{ purchase_price: string; sale_price: string }>(
       "SELECT purchase_price::text, sale_price::text FROM public.flowers WHERE id=$1::bigint FOR UPDATE", [flowerId]);
     if (!before.rows.length) { await client.query("ROLLBACK"); return { error: "Цветок не найден", message: "" }; }
-    await client.query("UPDATE public.flowers SET purchase_price=$2::numeric, sale_price=$3::numeric, updated_at=NOW() WHERE id=$1::bigint", [flowerId, purchase, sale]);
-    await audit(client, session.userId, "flower.prices", flowerId, { before: before.rows[0], after: { purchase_price: purchase, sale_price: sale } });
+    if (before.rows[0].purchase_price !== purchase || before.rows[0].sale_price !== sale) {
+      await client.query("UPDATE public.flowers SET purchase_price=$2::numeric, sale_price=$3::numeric, updated_at=NOW() WHERE id=$1::bigint", [flowerId, purchase, sale]);
+      await audit(client, session.userId, "flower.prices", flowerId, { before: before.rows[0], after: { purchase_price: purchase, sale_price: sale } });
+    }
     await client.query("COMMIT");
   } catch {
     await client.query("ROLLBACK");

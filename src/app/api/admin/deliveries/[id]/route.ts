@@ -28,6 +28,9 @@ type LockedDelivery = {
   status: string;
   courier_name: string | null;
   courier_user_id: string | null;
+  courier_phone: string | null;
+  scheduled_at: Date | null;
+  internal_note: string | null;
 };
 
 type LockedOrder = {
@@ -96,7 +99,8 @@ async function lockDeliveryAndOrder(client: PoolClient, deliveryId: string, cour
 
   const deliveryResult = await client.query<LockedDelivery>(
     `
-      SELECT id::text, order_id::text, status, courier_name, courier_user_id::text
+      SELECT id::text, order_id::text, status, courier_name, courier_user_id::text,
+             courier_phone, scheduled_at, internal_note
       FROM public.deliveries
       WHERE id = $1::uuid
         AND order_id = $2::uuid
@@ -209,7 +213,7 @@ export async function PATCH(
       const scheduledAt = parseScheduledAt(body.scheduledAt);
       const internalNote = trimText(body.internalNote, 4_000, "Примечание");
 
-      await client.query(
+      const updated = await client.query(
         `
           UPDATE public.deliveries
           SET courier_name = NULLIF($2::text, ''),
@@ -223,10 +227,25 @@ export async function PATCH(
               status = CASE WHEN $5::text = '' THEN 'planned' ELSE 'assigned' END,
               updated_at = NOW()
           WHERE id = $1::uuid
+            AND ROW(courier_name, scheduled_at, internal_note, courier_user_id, courier_phone, status)
+              IS DISTINCT FROM ROW(
+                NULLIF($2::text, ''),
+                CASE WHEN $3::text = '' THEN NULL ELSE $3::timestamp AT TIME ZONE 'Asia/Dushanbe' END,
+                NULLIF($4::text, ''),
+                NULLIF($5::text, '')::uuid,
+                $6::text,
+                CASE WHEN $5::text = '' THEN 'planned'::varchar ELSE 'assigned'::varchar END
+              )
         `,
         [id, courierName, scheduledAt, internalNote, courierUserId, courier?.phone ?? null],
       );
-      await audit(client, session.userId, "delivery.assign", id, { before: delivery.courier_user_id, after: courierUserId || null });
+      if (updated.rowCount === 1) {
+        await audit(client, session.userId, "delivery.assign", id, {
+          before: { courier_user_id: delivery.courier_user_id, status: delivery.status },
+          after: { courier_user_id: courierUserId || null, status: courierUserId ? "assigned" : "planned" },
+          fields: ["courier_user_id", "scheduled_at", "internal_note"],
+        });
+      }
       await client.query("COMMIT");
       revalidatePath("/admin/deliveries");
       return Response.json({

@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { audit } from "@/lib/admin-audit";
 import { authorizeApi } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { isFlowerId } from "@/lib/bouquet";
@@ -52,13 +53,25 @@ async function changeModel(request: Request, context: Context) {
       await client.query("BEGIN");
       const result = await client.query("SELECT model_3d FROM public.flowers WHERE id = $1::bigint FOR UPDATE", [flowerId]);
       if (!result.rows.length) throw new ModelInputError("Цветок не найден", 404);
+      const previous = sanitizeStoredFlowerModel(result.rows[0].model_3d);
       if (uploaded) model = uploaded;
       else if (request.method === "PATCH") {
-        const previous = sanitizeStoredFlowerModel(result.rows[0].model_3d);
         if (!previous) throw new ModelInputError("Сначала выберите и сохраните модель");
         model = { ...previous, settings: settings! };
       }
-      await client.query("UPDATE public.flowers SET model_3d = $2::jsonb, updated_at = now() WHERE id = $1::bigint", [flowerId, model ? JSON.stringify(model) : null]);
+      const changed = JSON.stringify(previous) !== JSON.stringify(model);
+      if (changed) {
+        await client.query("UPDATE public.flowers SET model_3d = $2::jsonb, updated_at = now() WHERE id = $1::bigint", [flowerId, model ? JSON.stringify(model) : null]);
+        const action = request.method === "POST"
+          ? "flower.model_upload"
+          : request.method === "PATCH"
+            ? "flower.model_update"
+            : "flower.model_delete";
+        await audit(client, session.userId, action, flowerId, {
+          before: previous ? { asset_id: previous.assetId, settings: previous.settings } : null,
+          after: model ? { asset_id: model.assetId, settings: model.settings } : null,
+        });
+      }
       commitStarted = true;
       await client.query("COMMIT");
       committed = true;

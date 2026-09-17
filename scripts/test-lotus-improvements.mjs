@@ -42,7 +42,7 @@ test("group ten stock instances, stable identities, decrement and disappear with
 
 test("navigation grants exactly the permitted sections and additive roles", () => {
   const expected = {
-    super_admin: ["/admin", "/admin/products", "/admin/deliveries", "/admin/customers", "/admin/suppliers", "/admin/purchases", "/admin/inventory", "/admin/staff"],
+    super_admin: ["/admin", "/admin/products", "/admin/deliveries", "/admin/customers", "/admin/suppliers", "/admin/purchases", "/admin/inventory", "/admin/staff", "/admin/audit"],
     florist: ["/admin", "/admin/products", "/admin/customers", "/admin/inventory"],
     inventory_manager: ["/admin/suppliers", "/admin/purchases", "/admin/inventory"],
     courier: ["/admin/deliveries"],
@@ -689,7 +689,7 @@ test("direct forbidden pages, APIs and uploads refuse every role before touching
       ["src/app/api/db-check/route.ts","settings.manage","GET"],
     ];
     const pagePermissions={"":"orders.read",inventory:"inventory.read",products:"products.manage",customers:"customers.read",
-      suppliers:"suppliers.manage",purchases:"purchases.manage",deliveries:"deliveries.read",staff:"staff.manage"};
+      suppliers:"suppliers.manage",purchases:"purchases.manage",deliveries:"deliveries.read",staff:"staff.manage",audit:"settings.manage"};
     function pages(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?pages(join(dir,e.name)):e.name==="page.tsx"?[join(dir,e.name)]:[]);}
     for(const role of permissions.STAFF_ROLES){
       await f.client.query("DELETE FROM pg_temp.user_roles WHERE user_id=$1",[id(2)]);

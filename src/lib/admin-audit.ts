@@ -4,7 +4,9 @@ import type { PoolClient } from "pg";
 export type AuditAction = "staff.create" | "staff.roles" | "staff.disable" | "staff.enable"
   | "staff.password_reset" | "staff.sessions_revoke" | "staff.password_change"
   | "flower.create" | "flower.update" | "flower.activity" | "flower.prices" | "flower.delete"
+  | "flower.model_upload" | "flower.model_update" | "flower.model_delete"
   | "category.create" | "category.update" | "category.activity" | "category.delete"
+  | "bouquet.create" | "bouquet.update" | "bouquet.activity"
   | "inventory.adjust" | "purchase.post" | "delivery.assign"
   | "order.status" | "order.delivery_fee" | "delivery.status" | "payment.status";
 // Call with the mutation's transaction. Never pass request bodies or credentials here.

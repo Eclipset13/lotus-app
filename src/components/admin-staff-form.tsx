@@ -30,7 +30,7 @@ export function AdminStaffForm({ employee }: { employee?: { id: string; roles: s
     <div className="flex flex-wrap gap-2">
       {(employee ? [ ["roles", "Сохранить роли"], ["password_reset", "Сбросить пароль"],
         [employee.status === "active" ? "disable" : "enable", employee.status === "active" ? "Отключить доступ" : "Включить доступ"],
-        ["sessions_revoke", "Отозвать сессии"] ] : [["create", "Создать сотрудника"]]).map(([value, label]) =>
+        ["sessions_revoke", "Завершить все сеансы"] ] : [["create", "Создать сотрудника"]]).map(([value, label]) =>
         <button key={value} type="submit" name="action" value={value} disabled={pending}
           onClick={(event) => { if (["disable", "password_reset", "sessions_revoke"].includes(value) && !window.confirm(`${label}? Активные сессии будут отозваны.`)) event.preventDefault(); }}
           className="rounded-full border border-[#ead8d1] bg-[#342622] px-4 py-2 text-sm text-white disabled:opacity-50">{label}</button>)}

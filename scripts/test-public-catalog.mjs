@@ -40,6 +40,7 @@ test("public assortment follows admin visibility and edits, and both pages are r
       );
       CREATE TEMP TABLE bouquet_items (bouquet_id bigint, flower_id bigint, quantity int);
       CREATE TEMP TABLE flowers (id bigint);
+      CREATE TEMP TABLE admin_audit_log (id bigint GENERATED ALWAYS AS IDENTITY, actor_user_id uuid, action text, entity_id text, details jsonb, created_at timestamptz DEFAULT now());
       INSERT INTO bouquets VALUES
         (9223372036854775807, 'Visible', 'Description', '/bouquet.jpg', 125.50, true, true, now()),
         (2, 'Hidden', NULL, NULL, 90, false, false, now());
@@ -80,6 +81,11 @@ test("public assortment follows admin visibility and edits, and both pages are r
       sale_price: "180.25", is_featured: false,
     }]);
     assert.deepEqual(paths, ["/admin/products", "/", "/catalog"]);
+    await assert.rejects(actions.updateProduct("2", { error: "" }, form), (error) => error === redirected);
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM admin_audit_log WHERE action='bouquet.update'")).rows[0].n, 1);
+    assert.deepEqual((await client.query("SELECT action FROM admin_audit_log ORDER BY id")).rows.map((row) => row.action), [
+      "bouquet.activity", "bouquet.activity", "bouquet.update",
+    ]);
   } finally { await client.end(); }
 });
 

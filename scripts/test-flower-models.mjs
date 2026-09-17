@@ -88,7 +88,9 @@ test("authorized upload/settings/replacement/unlink, rollback cleanup, immutable
   const logs = [];
   await client.connect();
   try {
-    await client.query("CREATE TEMP TABLE flowers (id bigint, model_3d jsonb, updated_at timestamptz); INSERT INTO flowers(id) VALUES (1)");
+    await client.query(`CREATE TEMP TABLE flowers (id bigint, model_3d jsonb, updated_at timestamptz);
+      CREATE TEMP TABLE admin_audit_log (id bigint GENERATED ALWAYS AS IDENTITY, actor_user_id uuid, action text, entity_id text, details jsonb, created_at timestamptz DEFAULT now());
+      INSERT INTO flowers(id) VALUES (1)`);
     const migration = readFileSync("src/db/migrations/20260914_flower_models.sql", "utf8").replaceAll("public.", "pg_temp.");
     await client.query(migration); await client.query(migration);
     assert.equal((await client.query("SELECT count(*)::int AS n FROM flowers")).rows[0].n, 1);
@@ -132,6 +134,8 @@ test("authorized upload/settings/replacement/unlink, rollback cleanup, immutable
     assert.equal((await call("PATCH", { display: changed })).status, 200);
     const adjusted = (await client.query("SELECT model_3d FROM flowers")).rows[0].model_3d;
     assert.deepEqual(adjusted.settings, changed); assert.equal(adjusted.assetId, first.assetId);
+    assert.equal((await call("PATCH", { display: changed })).status, 200);
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM admin_audit_log WHERE action='flower.model_update'")).rows[0].n, 1);
     assert.equal((await call("PATCH", { display: { ...settings, scale: 100 } })).status, 400);
     const orderSnapshot = models.sanitizeFlowerModel(adjusted);
     failUpdate = true;
@@ -147,6 +151,9 @@ test("authorized upload/settings/replacement/unlink, rollback cleanup, immutable
     assert.equal((await readdir(storage.MODEL_DIRECTORY)).length, 2, "Unlink never removes files used by saved orders");
     assert.equal(orderSnapshot.assetId, first.assetId); assert.deepEqual(JSON.parse(JSON.stringify(orderSnapshot.settings)), changed);
     assert.equal((await get(new Request("http://localhost"), { params: Promise.resolve({ assetId: orderSnapshot.assetId }) })).status, 200);
+    assert.deepEqual((await client.query("SELECT action FROM admin_audit_log ORDER BY id")).rows.map((row) => row.action), [
+      "flower.model_upload", "flower.model_update", "flower.model_upload", "flower.model_delete",
+    ]);
     const brokenStorage = { ...storage, writeModelFile: async () => { throw new Error("Disk unavailable"); } };
     const brokenRoute = loadTs("src/app/api/admin/flowers/[flowerId]/model/route.ts", { ...overrides, "@/lib/flower-model-storage": brokenStorage }, { console: { error() {} } });
     const failure = await brokenRoute.POST(new Request("http://localhost/test", { method: "POST", headers: { origin: "http://localhost", "x-model-name": "test.glb", "x-model-settings": JSON.stringify(settings) }, body: technicalGlb() }), { params: Promise.resolve({ flowerId: "1" }) });

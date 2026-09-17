@@ -9,7 +9,7 @@
     "lint": "eslint",
     "check:order-financials": "node scripts/check-order-financial-integrity.mjs",
     "staff:password": "node scripts/set-super-admin-password.mjs",
-    "test": "node --test scripts/test-checkout-security.mjs scripts/test-customer-phone.mjs scripts/test-public-catalog.mjs scripts/test-flower-models.mjs scripts/test-lotus-improvements.mjs scripts/test-order-financials.mjs",
+    "test": "node --test scripts/test-checkout-security.mjs scripts/test-customer-phone.mjs scripts/test-public-catalog.mjs scripts/test-flower-models.mjs scripts/test-lotus-improvements.mjs scripts/test-order-financials.mjs scripts/test-admin-completion.mjs",
     "test:browser": "node scripts/test-constructor-browser.mjs && node scripts/test-flower-model-browser.mjs && node scripts/test-builder-groups-browser.mjs"
   },
   "dependencies": {
