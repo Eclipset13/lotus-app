@@ -3,7 +3,6 @@ import type { PoolClient } from "pg";
 import { authorizeApi } from "@/lib/admin-auth";
 import { hasPermission } from "@/lib/permissions";
 import { audit } from "@/lib/admin-audit";
-import { parsePrice } from "@/lib/money-input";
 import { db } from "@/lib/db";
 import {
   canTransitionDeliveryStatus,
@@ -55,12 +54,6 @@ function trimText(value: unknown, maximumLength: number, label: string) {
     throw new DeliveryRequestError(`Поле «${label}» слишком длинное`, 400);
   }
   return text;
-}
-
-function parseCourierCost(value: unknown) {
-  const cost = parsePrice(typeof value === "number" ? String(value) : value);
-  if (cost === null) throw new DeliveryRequestError("Проверьте стоимость доставки", 400);
-  return cost;
 }
 
 function parseScheduledAt(value: unknown) {
@@ -198,6 +191,12 @@ export async function PATCH(
     }
 
     if (body.action === "details") {
+      if ("courierCost" in body) {
+        throw new DeliveryRequestError(
+          "Стоимость доставки изменяется в карточке заказа",
+          409,
+        );
+      }
       const courierUserId = trimText(body.courierUserId, 36, "Курьер");
       if (courierUserId && !uuidPattern.test(courierUserId)) throw new DeliveryRequestError("Выберите курьера", 400);
       if (["delivered", "cancelled", "failed", "on_the_way"].includes(delivery.status)) throw new DeliveryRequestError("Назначение этой доставки уже нельзя изменить", 409);
@@ -208,7 +207,6 @@ export async function PATCH(
       if (courierUserId && !courier) throw new DeliveryRequestError("Курьер не найден или отключён", 400);
       const courierName = courier?.name ?? "";
       const scheduledAt = parseScheduledAt(body.scheduledAt);
-      const courierCost = parseCourierCost(body.courierCost);
       const internalNote = trimText(body.internalNote, 4_000, "Примечание");
 
       await client.query(
@@ -219,15 +217,14 @@ export async function PATCH(
                 WHEN $3::text = '' THEN NULL
                 ELSE $3::timestamp AT TIME ZONE 'Asia/Dushanbe'
               END,
-              courier_cost = $4::numeric(12, 2),
-              internal_note = NULLIF($5::text, ''),
-              courier_user_id = NULLIF($6::text, '')::uuid,
-              courier_phone = $7,
-              status = CASE WHEN $6::text = '' THEN 'planned' ELSE 'assigned' END,
+              internal_note = NULLIF($4::text, ''),
+              courier_user_id = NULLIF($5::text, '')::uuid,
+              courier_phone = $6,
+              status = CASE WHEN $5::text = '' THEN 'planned' ELSE 'assigned' END,
               updated_at = NOW()
           WHERE id = $1::uuid
         `,
-        [id, courierName, scheduledAt, courierCost, internalNote, courierUserId, courier?.phone ?? null],
+        [id, courierName, scheduledAt, internalNote, courierUserId, courier?.phone ?? null],
       );
       await audit(client, session.userId, "delivery.assign", id, { before: delivery.courier_user_id, after: courierUserId || null });
       await client.query("COMMIT");

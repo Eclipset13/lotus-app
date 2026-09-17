@@ -15,7 +15,6 @@ type AdminDeliveryEditorProps = {
   status: DeliveryStatus;
   courierName: string;
   scheduledAt: string;
-  courierCost: string;
   internalNote: string;
 };
 
@@ -58,7 +57,6 @@ export function AdminDeliveryEditor({
   status,
   courierName,
   scheduledAt,
-  courierCost,
   internalNote,
 }: AdminDeliveryEditorProps) {
   const router = useRouter();
@@ -95,7 +93,6 @@ export function AdminDeliveryEditor({
       action: "details",
       courierUserId: formData.get("courier_user_id"),
       scheduledAt: formData.get("scheduled_at"),
-      courierCost: formData.get("courier_cost"),
       internalNote: formData.get("internal_note"),
     });
   }
@@ -138,19 +135,6 @@ export function AdminDeliveryEditor({
           />
         </label>
 
-        <label className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a]">
-          Стоимость доставки
-          <input
-            name="courier_cost"
-            type="text"
-            inputMode="decimal"
-            required
-            maxLength={16}
-            defaultValue={courierCost}
-            className={inputClass}
-          />
-        </label>
-
         <label className="text-xs font-bold uppercase tracking-[0.13em] text-[#99817a] lg:col-span-3">
           Внутреннее примечание
           <textarea
@@ -172,7 +156,7 @@ export function AdminDeliveryEditor({
             {pending ? "Сохраняем…" : "Сохранить доставку"}
           </button>
           <span className="text-xs text-[#99817a]">
-            Для назначения сначала сохраните имя курьера.
+            Стоимость доставки изменяется в карточке заказа.
           </span>
         </div>
       </form>

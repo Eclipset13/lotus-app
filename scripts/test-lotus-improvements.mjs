@@ -537,7 +537,7 @@ test("direct status API blocks pickup delivering, completes pickup, preserves ad
     f.setSession({userId:id(1),roles:["super_admin"]});
     await f.client.query("UPDATE pg_temp.orders SET status='ready' WHERE id=$1;",[id(11)]);
     await f.client.query("UPDATE pg_temp.deliveries SET status='planned' WHERE id=$1;",[id(21)]);
-    assert.equal((await delivery(request({action:"details",courierUserId:id(2),scheduledAt:"",courierCost:"10,50",internalNote:""}),ctx(21))).status,200);
+    assert.equal((await delivery(request({action:"details",courierUserId:id(2),scheduledAt:"",internalNote:""}),ctx(21))).status,200);
     assert.equal((await status(request({status:"delivering"}),ctx(11))).status,200);
     assert.equal((await status(request({status:"completed"}),ctx(11))).status,200);
     f.setSession({userId:id(2),roles:["florist"]});
@@ -681,6 +681,7 @@ test("direct forbidden pages, APIs and uploads refuse every role before touching
     const routes=[
       ["src/app/api/admin/orders/[id]/status/route.ts","orders.work","PATCH"],
       ["src/app/api/admin/orders/[id]/payment/route.ts","payments.manage","PATCH"],
+      ["src/app/api/admin/orders/[id]/delivery-fee/route.ts","payments.manage","PATCH"],
       ["src/app/api/admin/deliveries/[id]/route.ts","deliveries.read","PATCH"],
       ["src/app/api/admin/flowers/[flowerId]/model/route.ts","models.manage","POST"],
       ["src/app/api/admin/flowers/[flowerId]/model/route.ts","models.manage","PATCH"],

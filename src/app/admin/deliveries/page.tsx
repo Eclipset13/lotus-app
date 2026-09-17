@@ -34,7 +34,7 @@ type DeliveryRow = {
   scheduled_at_input: string | null;
   courier_user_id: string | null;
   courier_name: string | null;
-  courier_cost: string;
+  delivery_cost: string;
   internal_note: string | null;
   delivered_at: Date | null;
   created_at: Date;
@@ -221,7 +221,7 @@ export default async function AdminDeliveriesPage({
                ) AS scheduled_at_input,
                d.courier_user_id::text,
                d.courier_name,
-               d.courier_cost::text,
+               o.delivery_cost::text,
                d.internal_note,
                d.delivered_at,
                d.created_at
@@ -466,7 +466,7 @@ export default async function AdminDeliveriesPage({
                       {delivery.courier_name || "Не назначен"}
                     </p>
                     <p className="mt-1 text-sm text-[#806e68]">
-                      {formatMoney(delivery.courier_cost)}
+                      {formatMoney(delivery.delivery_cost)}
                     </p>
                   </div>
                   <div>
@@ -508,7 +508,6 @@ export default async function AdminDeliveriesPage({
                   status={delivery.status}
                   courierName={delivery.courier_name ?? ""}
                   scheduledAt={delivery.scheduled_at_input ?? ""}
-                  courierCost={delivery.courier_cost}
                   internalNote={delivery.internal_note ?? ""}
                 />
               </article>

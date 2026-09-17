@@ -160,6 +160,8 @@ test("cash and transfer payments are saved, unknown methods are rejected, and pa
 
     const cash = orderBody();
     cash.customer.phone = "906123456";
+    cash.deliveryFee = "999.99";
+    cash.delivery.deliveryFee = "888.88";
     assert.equal((await submit(post, cash)).status, 200);
 
     const transfer = orderBody();
@@ -169,6 +171,18 @@ test("cash and transfer payments are saved, unknown methods are rejected, and pa
 
     const methods = (await f.client.query("SELECT method FROM pg_temp.payments")).rows.map((row) => row.method).sort();
     assert.deepEqual(methods, ["cash", "transfer"]);
+    const amounts = await f.client.query(`
+      SELECT o.subtotal::text, o.delivery_cost::text, o.total_amount::text,
+             p.amount::text AS payment_amount
+      FROM pg_temp.orders o JOIN pg_temp.payments p ON p.order_id=o.id
+      ORDER BY o.created_at
+    `);
+    assert.ok(amounts.rows.every((row) =>
+      Number(row.subtotal) === 100 &&
+      Number(row.delivery_cost) === 0 &&
+      Number(row.total_amount) === 100 &&
+      Number(row.payment_amount) === 100
+    ));
 
     const unknown = orderBody();
     unknown.customer.phone = "908123456";

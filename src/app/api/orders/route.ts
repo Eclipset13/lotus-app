@@ -13,6 +13,7 @@ import {
   createBouquetCompositionSnapshot,
   type BouquetCompositionSnapshot,
 } from "@/lib/order-flower-requirements";
+import { recalculateOrderFinancials } from "@/lib/order-financials";
 
 export const runtime = "nodejs";
 
@@ -394,8 +395,6 @@ export async function POST(request: Request) {
     // Confirmation performs the existing locked check again.
     checkCartFlowerAvailability(requirements, stock.flowers);
 
-    let subtotalInDirams = 0;
-
     let priceAdjusted = false;
 
     for (const [id, item] of catalogItems) {
@@ -406,7 +405,6 @@ export async function POST(request: Request) {
       }
 
       const unitPrice = Number(bouquet.sale_price);
-      subtotalInDirams += Math.round(unitPrice * 100) * item.quantity;
 
       if (
         item.displayedUnitPrice !== null &&
@@ -418,7 +416,6 @@ export async function POST(request: Request) {
 
     for (const item of customBouquets) {
       const unitPrice = calculateCustomBouquetPrice(item.configuration);
-      subtotalInDirams += Math.round(unitPrice * 100) * item.quantity;
 
       if (
         item.displayedUnitPrice !== null &&
@@ -427,10 +424,6 @@ export async function POST(request: Request) {
         priceAdjusted = true;
       }
     }
-
-    const subtotal = subtotalInDirams / 100;
-    const deliveryCost = 0;
-    const totalAmount = subtotal + deliveryCost;
 
     const customerId = await findOrCreateCustomer(client, customerName, canonicalPhone);
 
@@ -467,9 +460,9 @@ export async function POST(request: Request) {
       [
         customerId,
         body.fulfillmentType,
-        subtotal.toFixed(2),
-        deliveryCost.toFixed(2),
-        totalAmount.toFixed(2),
+        "0.00",
+        "0.00",
+        "0.00",
         trimString(body.customerComment) || null,
       ]
     );
@@ -587,6 +580,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const financials = await recalculateOrderFinancials(client, order.id, "0.00");
+
     await client.query(
       `
         INSERT INTO payments (
@@ -600,7 +595,7 @@ export async function POST(request: Request) {
       [
         order.id,
         body.paymentMethod,
-        totalAmount.toFixed(2),
+        financials.totalAmount,
       ]
     );
 
@@ -611,7 +606,7 @@ export async function POST(request: Request) {
       success: true,
       message: "Заказ успешно оформлен",
       orderNumber: order.order_number,
-      totalAmount,
+      totalAmount: Number(financials.totalAmount),
       priceAdjusted,
     });
   } catch (error) {

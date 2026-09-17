@@ -4,6 +4,7 @@ import { hasPermission } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { requirePermission } from "@/lib/admin-auth";
 import { AdminPaymentActions } from "@/components/admin-payment-actions";
+import { AdminDeliveryFeeEditor } from "@/components/admin-delivery-fee-editor";
 import { AdminFilterSelect } from "@/components/admin-filter-select";
 import { AdminNavigation } from "@/components/admin-navigation";
 import {
@@ -61,6 +62,8 @@ type AdminOrder = {
   order_number: string;
   status: string;
   fulfillment_type: string;
+  subtotal: string;
+  delivery_cost: string;
   total_amount: string;
   customer_comment: string | null;
   created_at: Date;
@@ -68,6 +71,7 @@ type AdminOrder = {
   customer_phone: string;
   payment_method: string | null;
   payment_status: string | null;
+  payment_amount: string | null;
   recipient_name: string | null;
   recipient_phone: string | null;
   city: string | null;
@@ -325,6 +329,8 @@ export default async function AdminPage({
       o.order_number,
       o.status,
       o.fulfillment_type,
+      o.subtotal::text,
+      o.delivery_cost::text,
       o.total_amount::text,
       o.customer_comment,
       o.created_at,
@@ -332,6 +338,7 @@ export default async function AdminPage({
       u.phone AS customer_phone,
       payment.method AS payment_method,
       payment.status AS payment_status,
+      payment.amount::text AS payment_amount,
       delivery.recipient_name,
       delivery.recipient_phone,
       delivery.city,
@@ -351,10 +358,11 @@ export default async function AdminPage({
     LEFT JOIN LATERAL (
       SELECT
         p.method,
-        p.status
+        p.status,
+        p.amount
       FROM payments p
       WHERE p.order_id = o.id
-      ORDER BY p.created_at DESC
+      ORDER BY p.created_at DESC, p.id DESC
       LIMIT 1
     ) payment ON true
 
@@ -1003,6 +1011,18 @@ export default async function AdminPage({
                         );
                       })}
                     </div>
+
+                    <AdminDeliveryFeeEditor
+                      orderId={order.id}
+                      orderStatus={order.status}
+                      fulfillmentType={order.fulfillment_type}
+                      paymentStatus={order.payment_status}
+                      canManage={hasPermission(session.roles, "payments.manage")}
+                      subtotal={order.subtotal}
+                      deliveryCost={order.delivery_cost}
+                      totalAmount={order.total_amount}
+                      paymentAmount={order.payment_amount}
+                    />
                   </section>
                 </div>
 
