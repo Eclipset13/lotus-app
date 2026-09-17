@@ -230,24 +230,13 @@ h1 span {
   font-style: italic;
 }
 
-.flower {
-  position: absolute;
+.heroBouquet {
+  display: block;
+  width: min(100%, 500px);
+  height: auto;
+  transform: translateY(clamp(18px, 4vw, 42px)) rotate(-6deg) scale(1.08);
+  transform-origin: center center;
   filter: drop-shadow(0 20px 18px rgba(90, 48, 55, 0.15));
-}
-
-.flowerOne {
-  font-size: 145px;
-  transform: translate(-70px, 30px) rotate(-12deg);
-}
-
-.flowerTwo {
-  font-size: 140px;
-  transform: translate(65px, -30px) rotate(12deg);
-}
-
-.flowerThree {
-  font-size: 95px;
-  transform: translate(80px, 95px);
 }
 
 .catalog {

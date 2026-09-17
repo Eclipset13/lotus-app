@@ -234,9 +234,14 @@ export default function Storefront({
         </div>
 
         <div className="heroVisual">
-          <div className="flower flowerOne">🌸</div>
-          <div className="flower flowerTwo">🌷</div>
-          <div className="flower flowerThree">🌺</div>
+          <Image
+            className="heroBouquet"
+            src="/images/lotus-hero-bouquet.png"
+            alt="Нежный букет Lotus из роз и тюльпанов"
+            width={1312}
+            height={1199}
+            priority
+          />
           <p>Собрано с любовью</p>
         </div>
       </section>
