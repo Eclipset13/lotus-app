@@ -6,7 +6,8 @@ export type AuditAction = "staff.create" | "staff.roles" | "staff.disable" | "st
   | "flower.create" | "flower.update" | "flower.activity" | "flower.prices" | "flower.delete"
   | "flower.model_upload" | "flower.model_update" | "flower.model_delete"
   | "category.create" | "category.update" | "category.activity" | "category.delete"
-  | "bouquet.create" | "bouquet.update" | "bouquet.activity"
+  | "bouquet.create" | "bouquet.update" | "bouquet.activity" | "bouquet.delete"
+  | "wrapping.create" | "wrapping.update" | "wrapping.activity" | "wrapping.delete"
   | "inventory.adjust" | "purchase.post" | "delivery.assign"
   | "order.status" | "order.delivery_fee" | "delivery.status" | "payment.status";
 // Call with the mutation's transaction. Never pass request bodies or credentials here.

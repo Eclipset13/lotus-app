@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import type { ProductActionState } from "@/app/admin/products/actions";
 import { AdminSelect } from "@/components/admin-filter-select";
+import { AdminProductImageField } from "@/components/admin-product-image-field";
 
 export type ProductFlowerOption = {
   id: string;
@@ -90,10 +91,7 @@ export function AdminProductForm({
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#99817a]">сом</span>
             </div>
           </div>
-          <div>
-            <label htmlFor="image_url" className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-[#99817a]">Ссылка на фотографию</label>
-            <input id="image_url" name="image_url" type="url" maxLength={2000} defaultValue={initialValues.imageUrl} placeholder="https://..." className="h-12 w-full rounded-2xl border border-[#ead8d1] bg-[#fffaf8] px-4 text-sm outline-none transition focus:border-[#d89b91] focus:bg-white focus:ring-4 focus:ring-[#f4cbc4]/25" />
-          </div>
+          <AdminProductImageField currentUrl={initialValues.imageUrl || null} />
           <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-[#ead8d1] bg-[#fffaf8] p-4">
             <div>
               <span className="block text-sm font-semibold">Показывать в каталоге</span>

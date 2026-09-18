@@ -22,6 +22,7 @@ export function hasPermission(roles: readonly string[], permission: Permission) 
 export const ADMIN_SECTIONS: { href: string; label: string; icon: string; permission: Permission; exact: boolean }[] = [
   { href: "/admin", label: "Заказы", icon: "📦", permission: "orders.read", exact: true },
   { href: "/admin/products", label: "Букеты", icon: "🌷", permission: "products.manage", exact: false },
+  { href: "/admin/wrappings", label: "Упаковки", icon: "🎀", permission: "products.manage", exact: false },
   { href: "/admin/deliveries", label: "Доставка", icon: "📍", permission: "deliveries.read", exact: false },
   { href: "/admin/customers", label: "Покупатели", icon: "👥", permission: "customers.read", exact: false },
   { href: "/admin/suppliers", label: "Поставщики", icon: "🏢", permission: "suppliers.manage", exact: false },

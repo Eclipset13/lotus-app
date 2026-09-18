@@ -3,8 +3,8 @@ import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { sanitizeFlowerModel } from "@/lib/flower-model";
 import {
-  flowerSnapshot, upgradeLegacyConfiguration,
-  type CustomBouquetConfig, type FlowerKind, type LegacyFlowerLinks, type PublicFlower,
+  flowerSnapshot, upgradeLegacyConfiguration, wrappingSnapshot,
+  type CustomBouquetConfig, type FlowerKind, type LegacyFlowerLinks, type PublicFlower, type PublicWrapping,
 } from "@/lib/bouquet";
 
 export class BouquetAvailabilityError extends Error {}
@@ -28,6 +28,16 @@ export async function loadConstructorStock(client?: PoolClient) {
     WHERE f.is_active = true
     ORDER BY f.name, f.id
   `);
+  const wrappingResult = await queryable.query<{
+    id: string; slug: string; name: string; subtitle: string; color: string;
+    ribbon_color: string; sale_price: string; opacity: string; sort_order: number;
+  }>(`
+    SELECT id::text, slug, name, subtitle, color, ribbon_color,
+           sale_price::text, opacity::text, sort_order
+    FROM public.constructor_wrappings
+    WHERE is_active = true
+    ORDER BY sort_order, id
+  `);
   const flowers: PublicFlower[] = result.rows.map((row) => ({
     id: row.id, name: row.name, color: row.color, imageUrl: row.image_url,
     salePrice: Number(row.sale_price), availableQuantity: Number(row.available_quantity),
@@ -38,17 +48,31 @@ export async function loadConstructorStock(client?: PoolClient) {
     const matches = result.rows.filter((flower) => flower.constructor_kind === kind);
     if (matches.length === 1) legacyLinks[kind] = matches[0].id;
   }
-  return { flowers, legacyLinks };
+  const wrappings: PublicWrapping[] = wrappingResult.rows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    subtitle: row.subtitle,
+    color: row.color,
+    ribbonColor: row.ribbon_color,
+    salePrice: Number(row.sale_price),
+    opacity: Number(row.opacity),
+    sortOrder: Number(row.sort_order),
+  }));
+  return { flowers, legacyLinks, wrappings };
 }
 
 /** Discard all client metadata; snapshot current database values, preserving geometry. */
 export function verifyCustomBouquet(
   config: CustomBouquetConfig, flowers: PublicFlower[], legacyLinks: LegacyFlowerLinks,
+  wrappings: PublicWrapping[],
 ): CustomBouquetConfig {
   const upgraded = upgradeLegacyConfiguration(config, legacyLinks);
   if (!upgraded) throw new BouquetAvailabilityError("Для старого букета нужно выбрать складскую позицию в конструкторе");
+  const wrapping = wrappings.find((item) => item.slug === upgraded.wrappingKind);
+  if (!wrapping) throw new BouquetAvailabilityError("Выбранная упаковка больше недоступна. Обновите букет в конструкторе");
   const byId = new Map(flowers.map((flower) => [flower.id, flower]));
-  return { schemaVersion: 2, wrappingKind: upgraded.wrappingKind, flowers: upgraded.flowers.map((flower) => {
+  return { schemaVersion: 2, wrappingKind: wrapping.slug, wrappingSnapshot: wrappingSnapshot(wrapping), flowers: upgraded.flowers.map((flower) => {
     const stock = byId.get(flower.flowerId!);
     if (!stock || !Number.isFinite(stock.salePrice) || stock.salePrice < 0) {
       throw new BouquetAvailabilityError("Цветок в авторском букете недоступен. Обновите композицию в конструкторе");

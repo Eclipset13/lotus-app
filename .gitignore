@@ -22,6 +22,7 @@
 
 # Persistent, immutable uploaded flower models (back up alongside PostgreSQL).
 /var/flower-models/
+/var/product-images/
 
 # misc
 .DS_Store

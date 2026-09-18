@@ -8,6 +8,9 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/admin-audit";
 import { isDatabaseId, parseCategory, parseFlowerDetails } from "@/lib/flower-admin";
 import { parsePrice } from "@/lib/money-input";
+import { ProductImageInputError } from "@/lib/product-image";
+import { prepareProductImage, stageProductImage } from "@/lib/product-image-form";
+import { discardProductImageFile } from "@/lib/product-image-storage";
 
 export type InventoryActionState = {
   error: string;
@@ -80,7 +83,7 @@ function logMutationFailure(operation: string, error: unknown) {
 }
 
 function flowerMutationError(error: unknown): InventoryActionState {
-  if (error instanceof InventoryValidationError) return { error: error.message, message: "" };
+  if (error instanceof InventoryValidationError || error instanceof ProductImageInputError) return { error: error.message, message: "" };
   if (databaseCode(error) === "23505") return { error: "Цветок с таким slug уже существует", message: "" };
   if (databaseCode(error) === "23503") return { error: "Выбранная категория больше не существует", message: "" };
   logMutationFailure("Flower mutation", error);
@@ -240,13 +243,21 @@ export async function createFlower(
   formData: FormData,
 ): Promise<InventoryActionState> {
   const session = await requirePermission("inventory.manage");
-  const parsed = parseFlowerDetails(formData);
+  let prepared;
+  try { prepared = await prepareProductImage(formData, null); }
+  catch (error) { return flowerMutationError(error); }
+  const parsed = parseFlowerDetails(formData, prepared.imageUrl);
   if (!parsed.value) return { error: parsed.error, message: "" };
   const input = parsed.value;
   const isActive = formData.get("is_active") === "true";
   const client = await db.connect();
   let flowerId = "";
+  let stagedAsset: string | null = null;
+  let commitStarted = false;
   try {
+    const staged = await stageProductImage(prepared);
+    stagedAsset = staged.assetId;
+    input.imageUrl = staged.imageUrl;
     await client.query("BEGIN");
     const result = await client.query<{ id: string }>(`
       INSERT INTO public.flowers (
@@ -257,10 +268,12 @@ export async function createFlower(
     `, [input.categoryId, input.name, input.slug, input.description, input.color, input.unit,
       input.minimumStock, input.imageUrl, isActive]);
     flowerId = result.rows[0].id;
-    await audit(client, session.userId, "flower.create", flowerId, { active: isActive });
+    await audit(client, session.userId, "flower.create", flowerId, { active: isActive, image_source: staged.source });
+    commitStarted = true;
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
+    if (stagedAsset && !commitStarted) await discardProductImageFile(stagedAsset).catch((cleanupError) => console.error("Product image cleanup failed", cleanupError));
     return flowerMutationError(error);
   } finally { client.release(); }
   revalidateInventory(flowerId);
@@ -274,10 +287,12 @@ export async function updateFlowerDetails(
 ): Promise<InventoryActionState> {
   const session = await requirePermission("inventory.manage");
   if (!isDatabaseId(flowerId)) return { error: "Цветок не найден", message: "" };
-  const parsed = parseFlowerDetails(formData);
+  const parsed = parseFlowerDetails(formData, null);
   if (!parsed.value) return { error: parsed.error, message: "" };
   const input = parsed.value;
   const client = await db.connect();
+  let stagedAsset: string | null = null;
+  let commitStarted = false;
   try {
     await client.query("BEGIN");
     const locked = await client.query<{ category_id: string | null; name: string; slug: string; description: string | null; color: string | null; unit: string; min_stock_quantity: number; image_url: string | null }>(
@@ -285,6 +300,10 @@ export async function updateFlowerDetails(
        FROM public.flowers WHERE id=$1::bigint FOR UPDATE`, [flowerId]);
     if (!locked.rows.length) throw new InventoryValidationError("Цветок не найден");
     const before = locked.rows[0];
+    const prepared = await prepareProductImage(formData, before.image_url);
+    const staged = await stageProductImage(prepared);
+    stagedAsset = staged.assetId;
+    input.imageUrl = staged.imageUrl;
     const after = { category_id: input.categoryId, name: input.name, slug: input.slug,
       description: input.description, color: input.color, unit: input.unit,
       min_stock_quantity: input.minimumStock, image_url: input.imageUrl };
@@ -293,10 +312,22 @@ export async function updateFlowerDetails(
       description=$5, color=$6, unit=$7, min_stock_quantity=$8, image_url=$9, updated_at=NOW()
       WHERE id=$1::bigint`, [flowerId, input.categoryId, input.name, input.slug, input.description,
       input.color, input.unit, input.minimumStock, input.imageUrl]);
-    if (changed) await audit(client, session.userId, "flower.update", flowerId, { before, after });
+    if (changed) {
+      const safeBefore = { category_id: before.category_id, name: before.name, slug: before.slug,
+        description: before.description, color: before.color, unit: before.unit,
+        min_stock_quantity: before.min_stock_quantity };
+      const safeAfter = { category_id: after.category_id, name: after.name, slug: after.slug,
+        description: after.description, color: after.color, unit: after.unit,
+        min_stock_quantity: after.min_stock_quantity };
+      await audit(client, session.userId, "flower.update", flowerId, { before: safeBefore, after: safeAfter,
+        image_changed: before.image_url !== after.image_url,
+        image_source: before.image_url !== after.image_url ? prepared.source : "unchanged" });
+    }
+    commitStarted = true;
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
+    if (stagedAsset && !commitStarted) await discardProductImageFile(stagedAsset).catch((cleanupError) => console.error("Product image cleanup failed", cleanupError));
     return flowerMutationError(error);
   } finally { client.release(); }
   revalidateInventory(flowerId);

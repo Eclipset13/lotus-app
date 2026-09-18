@@ -16,6 +16,7 @@ export type CatalogCartItem = {
   name: string;
   quantity: number;
   unitPrice: number;
+  unavailable?: boolean;
 };
 
 export type CustomBouquetCartItem = {
@@ -233,5 +234,6 @@ export function writeCartItems(items: CartItem[]): void {
 }
 
 export function getCartItemLineTotal(item: CartItem): number {
+  if (item.itemType === "catalog-bouquet" && item.unavailable) return 0;
   return item.unitPrice * item.quantity;
 }

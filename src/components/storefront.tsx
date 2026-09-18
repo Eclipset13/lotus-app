@@ -35,7 +35,11 @@ export default function Storefront({
       if (cancelled) return;
 
       const cartState = readCartState();
-      setCart(cartState.items);
+      const activeBouquetIds = new Set(bouquets.map((bouquet) => bouquet.id));
+      const reconciled = cartState.items.map((item) => item.itemType === "catalog-bouquet" && !activeBouquetIds.has(item.productId)
+        ? { ...item, unavailable: true as const }
+        : item);
+      setCart(reconciled);
       setCartLoaded(true);
 
       if (cartState.priceAdjusted) {
@@ -72,7 +76,7 @@ export default function Storefront({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bouquets]);
 
   useEffect(() => {
     if (cartLoaded) {
@@ -417,9 +421,7 @@ export default function Storefront({
                             </Link>
                           </div>
                         ) : (
-                          <p>
-                            {item.unitPrice.toLocaleString("ru-RU")} сом
-                          </p>
+                          item.unavailable ? <p className="text-sm font-semibold text-red-700">Позиция больше недоступна. Удалите её из корзины.</p> : <p>{item.unitPrice.toLocaleString("ru-RU")} сом</p>
                         )}
 
                         <div className="quantityControl">
@@ -429,7 +431,7 @@ export default function Storefront({
                               changeQuantity(item.id, -1)
                             }
                             aria-label="Уменьшить количество"
-                            disabled={item.quantity <= 1}
+                            disabled={item.quantity <= 1 || (item.itemType === "catalog-bouquet" && item.unavailable)}
                           >
                             −
                           </button>
@@ -443,7 +445,7 @@ export default function Storefront({
                             }
                             aria-label="Увеличить количество"
                             disabled={
-                              item.quantity >= CART_ITEM_MAX_QUANTITY
+                              item.quantity >= CART_ITEM_MAX_QUANTITY || (item.itemType === "catalog-bouquet" && item.unavailable)
                             }
                           >
                             +
@@ -469,9 +471,10 @@ export default function Storefront({
                   <button
                     type="button"
                     className="checkoutButton"
+                    disabled={cart.some((item) => item.itemType === "catalog-bouquet" && item.unavailable)}
                     onClick={() => window.location.assign("/checkout")}
                   >
-                    Перейти к оформлению
+                    {cart.some((item) => item.itemType === "catalog-bouquet" && item.unavailable) ? "Удалите недоступную позицию" : "Перейти к оформлению"}
                   </button>
 
                   <p>Доставка рассчитывается при оформлении</p>

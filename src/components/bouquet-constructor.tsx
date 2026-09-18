@@ -27,9 +27,10 @@ import {
     createCustomBouquetSummary,
     flowerSnapshot,
     formatCustomBouquetComposition,
+    wrappingSnapshot,
     type PublicFlower,
+    type PublicWrapping,
     type LegacyFlowerLinks,
-    CUSTOM_BOUQUET_WRAPPINGS,
     MAX_CUSTOM_BOUQUET_FLOWERS,
     sanitizeCustomBouquetConfig,
     type CustomBouquetConfig,
@@ -52,7 +53,6 @@ import {
     type Vector3,
 } from "@/lib/bouquet-layout";
 
-const WRAPPINGS = CUSTOM_BOUQUET_WRAPPINGS;
 const MAX_FLOWERS = MAX_CUSTOM_BOUQUET_FLOWERS;
 const AUTO_COMPOSITION_HEIGHT_OFFSET = -0.21;
 const BOUQUET_DRAFT_KEY = "lotus:bouquet-draft:v1";
@@ -216,7 +216,7 @@ function readBouquetDraft(): BouquetDraft | null {
 
 function createBouquetConfiguration(
     flowers: FlowerInstance[],
-    wrappingKind: WrappingKind
+    wrapping: PublicWrapping
 ): CustomBouquetConfig {
     return {
         schemaVersion: flowers.every((flower) => flower.flowerId) ? 2 : 1,
@@ -225,7 +225,8 @@ function createBouquetConfiguration(
             position: [...flower.position],
             rotation: [...flower.rotation],
         })),
-        wrappingKind,
+        wrappingKind: wrapping.slug,
+        wrappingSnapshot: wrappingSnapshot(wrapping),
     };
 }
 
@@ -233,10 +234,12 @@ export function BouquetConstructor({
     editCartItemId,
     stockFlowers,
     legacyLinks,
+    wrappings,
 }: {
     editCartItemId?: string;
     stockFlowers: PublicFlower[];
     legacyLinks: LegacyFlowerLinks;
+    wrappings: PublicWrapping[];
 }) {
     const router = useRouter();
     const [search, setSearch] = useState("");
@@ -245,12 +248,12 @@ export function BouquetConstructor({
     >([]);
 
     const [wrappingKind, setWrappingKind] =
-        useState<WrappingKind>("blush");
+        useState<WrappingKind>(wrappings[0]?.slug ?? "");
 
     const wrapping =
-        WRAPPINGS.find(
-            (option) => option.kind === wrappingKind
-        ) ?? WRAPPINGS[0];
+        wrappings.find(
+            (option) => option.slug === wrappingKind
+        ) ?? wrappings[0]!;
 
     const [selectedId, setSelectedId] =
         useState<string | null>(null);
@@ -395,13 +398,15 @@ export function BouquetConstructor({
                 };
             })
         );
-        setWrappingKind(configuration.wrappingKind);
+        const availableWrapping = wrappings.find((item) => item.slug === configuration.wrappingKind);
+        setWrappingKind(availableWrapping?.slug ?? wrappings[0]?.slug ?? configuration.wrappingKind);
+        if (!availableWrapping) setCartActionMessage("Сохранённая упаковка больше недоступна. Выберите актуальный вариант.");
         setSelectedId(null);
         cancelContinuousEdit();
         historyRef.current = { past: [], future: [] };
         updateHistoryStatus();
     }, [cancelContinuousEdit, replaceFlowers, setSelectedId, setWrappingKind,
-        updateHistoryStatus, stockFlowers, legacyLinks]);
+        updateHistoryStatus, stockFlowers, legacyLinks, wrappings]);
 
     useEffect(() => {
         if (storageInitializationRef.current) return;
@@ -458,8 +463,9 @@ export function BouquetConstructor({
         }
 
         const timeout = window.setTimeout(() => {
+            if (!wrapping) return;
             const configuration = sanitizeCustomBouquetConfig(
-                createBouquetConfiguration(flowersRef.current, wrappingKind)
+                createBouquetConfiguration(flowersRef.current, wrapping)
             );
 
             if (!configuration) return;
@@ -481,7 +487,7 @@ export function BouquetConstructor({
         }, 450);
 
         return () => window.clearTimeout(timeout);
-    }, [draftOffer, editingItemId, flowers, storageReady, wrappingKind]);
+    }, [draftOffer, editingItemId, flowers, storageReady, wrapping]);
 
     useEffect(() => {
         if (!draftOffer) return;
@@ -827,7 +833,7 @@ export function BouquetConstructor({
     const startFreshBouquet = useCallback(() => {
         window.localStorage.removeItem(BOUQUET_DRAFT_KEY);
         replaceFlowers([]);
-        setWrappingKind("blush");
+        setWrappingKind(wrappings[0]?.slug ?? "");
         setSelectedId(null);
         cancelContinuousEdit();
         historyRef.current = { past: [], future: [] };
@@ -840,6 +846,7 @@ export function BouquetConstructor({
         setSelectedId,
         setWrappingKind,
         updateHistoryStatus,
+        wrappings,
     ]);
 
     const resetCamera = useCallback(() => {
@@ -938,9 +945,13 @@ export function BouquetConstructor({
 
     const saveBouquetToCart = useCallback(async () => {
         if (cartSavePendingRef.current) return;
+        if (!wrapping) {
+            setCartActionMessage("Сейчас нет доступных упаковок. Обратитесь к менеджеру.");
+            return;
+        }
 
         const configuration = sanitizeCustomBouquetConfig(
-            createBouquetConfiguration(flowersRef.current, wrappingKind)
+            createBouquetConfiguration(flowersRef.current, wrapping)
         );
 
         if (!configuration || configuration.schemaVersion !== 2) {
@@ -1068,7 +1079,7 @@ export function BouquetConstructor({
         setCartActionMessage,
         setCartSavePhase,
         setSelectedId,
-        wrappingKind,
+        wrapping,
         stockFlowers,
     ]);
 
@@ -1200,14 +1211,18 @@ export function BouquetConstructor({
         undo,
     ]);
 
+    if (!wrapping) {
+        return <div className="grid h-full place-items-center bg-[#fff4f1] p-6 text-center text-[#806e68]">Сейчас нет доступных упаковок. Попробуйте позже.</div>;
+    }
+
     const currentConfiguration = sanitizeCustomBouquetConfig(
-        createBouquetConfiguration(flowers, wrappingKind)
+        createBouquetConfiguration(flowers, wrapping)
     );
     const total = currentConfiguration && currentConfiguration.flowers.every((flower) => flower.snapshot)
         ? calculateCustomBouquetPrice(currentConfiguration)
         : 0;
     const flowerTotal = total
-        ? total - wrapping.price
+        ? total - wrapping.salePrice
         : 0;
     const isCartSaving = cartSavePhase !== null;
 
@@ -1321,16 +1336,16 @@ export function BouquetConstructor({
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2">
-                        {WRAPPINGS.map((option) => {
+                        {wrappings.map((option) => {
                             const active =
-                                option.kind === wrappingKind;
+                                option.slug === wrappingKind;
 
                             return (
                                 <button
-                                    key={option.kind}
+                                    key={option.slug}
                                     type="button"
                                     onClick={() =>
-                                        setWrappingKind(option.kind)
+                                        setWrappingKind(option.slug)
                                     }
                                     className={`rounded-[18px] border p-3 text-center transition ${active
                                         ? "border-[#c97d72] bg-[#fff1ed] shadow-sm"
@@ -1349,7 +1364,7 @@ export function BouquetConstructor({
                                     </span>
 
                                     <span className="mt-1 block text-[11px] text-[#98827c]">
-                                        {money(option.price)}
+                                        {money(option.salePrice)}
                                     </span>
                                 </button>
                             );
@@ -1390,7 +1405,7 @@ export function BouquetConstructor({
                         <span>Упаковка</span>
                         <span>
                             {flowers.length
-                                ? money(wrapping.price)
+                                ? money(wrapping.salePrice)
                                 : "—"}
                         </span>
                     </div>

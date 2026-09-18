@@ -176,7 +176,8 @@ test("server visual snapshots override client models; cart and old configuration
   const fake = { assetId: "22222222-2222-4222-8222-222222222222", settings: { ...settings, scale: 5 } };
   const config = { schemaVersion: 2, wrappingKind: "blush", flowers: [0, 1].map((i) => ({ id: `instance-${i}`, flowerId: "1", position: [i, 0, 0], rotation: [0, i, 0], snapshot: { name: "Forged", salePrice: 0, model: fake } })) };
   const flowers = [{ id: "1", name: "Stock flower", salePrice: 50, availableQuantity: 10, color: null, imageUrl: null, model: first }];
-  const verified = stock.verifyCustomBouquet(bouquet.sanitizeCustomBouquetConfig(config), flowers, {});
+  const wrappings = [{ id: "1", slug: "blush", name: "Пудровая", subtitle: "", color: "#f4cfc8", ribbonColor: "#b85d70", salePrice: 25, opacity: 0.5, sortOrder: 10 }];
+  const verified = stock.verifyCustomBouquet(bouquet.sanitizeCustomBouquetConfig(config), flowers, {}, wrappings);
   assert.equal(JSON.stringify(verified.flowers[0].snapshot.model), JSON.stringify(first));
   assert.equal(bouquet.calculateCustomBouquetPrice(verified), 125);
   const old = { schemaVersion: 1, wrappingKind: "blush", flowers: [{ id: "legacy", kind: "rose", position: [0, 0, 0], rotation: [0, 0, 0] }] };
@@ -187,5 +188,5 @@ test("server visual snapshots override client models; cart and old configuration
   flowers[0].model = fake;
   assert.equal(verified.flowers[0].snapshot.model.assetId, first.assetId);
   flowers[0].model = null;
-  assert.equal(stock.verifyCustomBouquet(config, flowers, {}).flowers[0].snapshot.model, null);
+  assert.equal(stock.verifyCustomBouquet(config, flowers, {}, wrappings).flowers[0].snapshot.model, null);
 });

@@ -1,8 +1,22 @@
 import { sanitizeFlowerModel, type FlowerModel } from "@/lib/flower-model";
 
 export type FlowerKind = "rose" | "peony" | "tulip";
-export type WrappingKind = "blush" | "kraft" | "ivory";
+export type WrappingKind = string;
 export type BouquetVector3 = [number, number, number];
+
+export type PublicWrapping = {
+  id: string;
+  slug: string;
+  name: string;
+  subtitle: string;
+  color: string;
+  ribbonColor: string;
+  salePrice: number;
+  opacity: number;
+  sortOrder: number;
+};
+
+export type WrappingSnapshot = Omit<PublicWrapping, "id" | "sortOrder">;
 
 export type CustomBouquetFlower = {
   id: string;
@@ -18,6 +32,7 @@ export type CustomBouquetConfig = {
   schemaVersion: 1 | 2;
   flowers: CustomBouquetFlower[];
   wrappingKind: WrappingKind;
+  wrappingSnapshot?: WrappingSnapshot;
 };
 
 export type CustomBouquetSummary = {
@@ -81,7 +96,9 @@ export const CUSTOM_BOUQUET_FLOWERS = [
   },
 ] as const;
 
-export const CUSTOM_BOUQUET_WRAPPINGS = [
+// Historical v1/v2 carts and orders did not contain a wrapping snapshot.
+// These values are only a compatibility fallback when reading those records.
+export const LEGACY_CUSTOM_BOUQUET_WRAPPINGS = [
   {
     kind: "blush" as const,
     name: "Пудровая",
@@ -114,12 +131,58 @@ export const CUSTOM_BOUQUET_WRAPPINGS = [
 const flowerKinds = new Set<FlowerKind>(
   CUSTOM_BOUQUET_FLOWERS.map((flower) => flower.kind)
 );
-const wrappingKinds = new Set<WrappingKind>(
-  CUSTOM_BOUQUET_WRAPPINGS.map((wrapping) => wrapping.kind)
-);
+const wrappingSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeWrappingSnapshot(value: unknown): WrappingSnapshot | undefined {
+  if (!isRecord(value) || typeof value.slug !== "string" ||
+      !wrappingSlugPattern.test(value.slug) || value.slug.length > 64 ||
+      typeof value.name !== "string" || !value.name.trim() || value.name.length > 120 ||
+      typeof value.subtitle !== "string" || value.subtitle.length > 180 ||
+      typeof value.color !== "string" || !/^#[0-9a-f]{6}$/i.test(value.color) ||
+      typeof value.ribbonColor !== "string" || !/^#[0-9a-f]{6}$/i.test(value.ribbonColor) ||
+      typeof value.salePrice !== "number" || !Number.isFinite(value.salePrice) || value.salePrice < 0 ||
+      typeof value.opacity !== "number" || !Number.isFinite(value.opacity) || value.opacity < 0 || value.opacity > 1) {
+    return undefined;
+  }
+  return {
+    slug: value.slug,
+    name: value.name.trim(),
+    subtitle: value.subtitle.trim(),
+    color: value.color.toLowerCase(),
+    ribbonColor: value.ribbonColor.toLowerCase(),
+    salePrice: Math.round(value.salePrice * 100) / 100,
+    opacity: value.opacity,
+  };
+}
+
+export function wrappingSnapshot(wrapping: PublicWrapping): WrappingSnapshot {
+  return {
+    slug: wrapping.slug,
+    name: wrapping.name,
+    subtitle: wrapping.subtitle,
+    color: wrapping.color,
+    ribbonColor: wrapping.ribbonColor,
+    salePrice: wrapping.salePrice,
+    opacity: wrapping.opacity,
+  };
+}
+
+export function resolveWrappingSnapshot(config: CustomBouquetConfig): WrappingSnapshot | undefined {
+  if (config.wrappingSnapshot?.slug === config.wrappingKind) return config.wrappingSnapshot;
+  const legacy = LEGACY_CUSTOM_BOUQUET_WRAPPINGS.find((item) => item.kind === config.wrappingKind);
+  return legacy ? {
+    slug: legacy.kind,
+    name: legacy.name,
+    subtitle: legacy.subtitle,
+    color: legacy.color,
+    ribbonColor: legacy.ribbonColor,
+    salePrice: legacy.price,
+    opacity: legacy.opacity,
+  } : undefined;
 }
 
 function sanitizeTuple(
@@ -152,7 +215,8 @@ export function sanitizeCustomBouquetConfig(
     value.flowers.length < 1 ||
     value.flowers.length > MAX_CUSTOM_BOUQUET_FLOWERS ||
     typeof value.wrappingKind !== "string" ||
-    !wrappingKinds.has(value.wrappingKind as WrappingKind)
+    value.wrappingKind.length > 64 ||
+    !wrappingSlugPattern.test(value.wrappingKind)
   ) {
     return null;
   }
@@ -202,10 +266,14 @@ export function sanitizeCustomBouquetConfig(
     });
   }
 
+  const safeWrappingSnapshot = sanitizeWrappingSnapshot(value.wrappingSnapshot);
   return {
     schemaVersion: value.schemaVersion,
     flowers,
-    wrappingKind: value.wrappingKind as WrappingKind,
+    wrappingKind: value.wrappingKind,
+    ...(safeWrappingSnapshot
+      ? { wrappingSnapshot: safeWrappingSnapshot }
+      : {}),
   };
 }
 
@@ -221,15 +289,13 @@ export function calculateCustomBouquetPrice(
   const flowerPrices = new Map(
     CUSTOM_BOUQUET_FLOWERS.map((flower) => [flower.kind, flower.price])
   );
-  const wrapping = CUSTOM_BOUQUET_WRAPPINGS.find(
-    (option) => option.kind === config.wrappingKind
-  );
+  const wrapping = resolveWrappingSnapshot(config);
 
   const total = config.flowers.reduce(
     (sum, flower) => sum + Math.round((config.schemaVersion === 2
       ? flower.snapshot?.salePrice ?? NaN
       : flower.kind ? flowerPrices.get(flower.kind) ?? NaN : NaN) * 100),
-    Math.round((wrapping?.price ?? 0) * 100)
+    Math.round((wrapping?.salePrice ?? 0) * 100)
   );
   return total / 100;
 }
@@ -237,9 +303,7 @@ export function calculateCustomBouquetPrice(
 export function createCustomBouquetSummary(
   config: CustomBouquetConfig
 ): CustomBouquetSummary {
-  const wrapping = CUSTOM_BOUQUET_WRAPPINGS.find(
-    (option) => option.kind === config.wrappingKind
-  );
+  const wrapping = resolveWrappingSnapshot(config);
 
   if (config.schemaVersion === 2) {
     const groups = new Map<string, { flowerId: string; name: string; quantity: number; unitPrice: number }>();

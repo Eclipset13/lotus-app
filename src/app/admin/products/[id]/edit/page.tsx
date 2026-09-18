@@ -6,6 +6,7 @@ import {
   type ProductFlowerOption,
 } from "@/components/admin-product-form";
 import { BrandLogo } from "@/components/brand-logo";
+import { AdminProductDelete } from "@/components/admin-product-delete";
 import { requirePermission } from "@/lib/admin-auth";
 import { db } from "@/lib/db";
 import { updateProduct } from "../../actions";
@@ -115,6 +116,7 @@ export default async function EditProductPage({
           }}
           submitLabel="Сохранить изменения"
         />
+        <AdminProductDelete productId={product.id} productName={product.name} isActive={product.is_active} />
       </div>
     </main>
   );

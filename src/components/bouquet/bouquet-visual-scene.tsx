@@ -10,7 +10,7 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
-import { CUSTOM_BOUQUET_WRAPPINGS } from "@/lib/bouquet";
+import type { PublicWrapping, WrappingSnapshot } from "@/lib/bouquet";
 import { UploadedFlowerModel } from "@/components/bouquet/uploaded-flower-model";
 import {
   FLOWER_HEAD_OFFSET,
@@ -20,8 +20,7 @@ import {
   type Vector3,
 } from "@/lib/bouquet-layout";
 
-export type BouquetWrappingOption =
-  (typeof CUSTOM_BOUQUET_WRAPPINGS)[number];
+export type BouquetWrappingOption = Pick<PublicWrapping | WrappingSnapshot, "color" | "opacity" | "ribbonColor">;
 
 type FlowerStyle = {
   outerCount: number;

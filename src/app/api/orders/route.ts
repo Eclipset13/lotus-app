@@ -388,7 +388,7 @@ export async function POST(request: Request) {
       }
     }
     for (const item of customBouquets) {
-      item.configuration = verifyCustomBouquet(item.configuration, stock.flowers, stock.legacyLinks);
+      item.configuration = verifyCustomBouquet(item.configuration, stock.flowers, stock.legacyLinks, stock.wrappings);
       for (const flower of item.configuration.flowers) addRequirement(flower.flowerId!, item.quantity);
     }
     // Checkout checks the whole cart but neither reserves nor changes stock.

@@ -1,5 +1,35 @@
 # Миграции PostgreSQL
 
+## Упаковки конструктора
+
+Файл: `20260917_constructor_wrappings.sql`. Выполните вручную под владельцем
+схемы после резервной копии; приложение миграцию не запускает:
+
+```powershell
+psql -U postgres -d lotus_db -f "D:\Projects\lotus-app\src\db\migrations\20260917_constructor_wrappings.sql"
+```
+
+Если прикладная роль называется не `lotus_app`, перед запуском в том же
+соединении задайте `SET lotus.app_role = 'имя_роли';`. Миграция создаёт единый
+справочник и добавляет `blush`, `kraft`, `ivory`, не перезаписывая строки при
+повторном запуске.
+
+```sql
+SELECT column_name, data_type, numeric_precision, numeric_scale
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'constructor_wrappings'
+ORDER BY ordinal_position;
+
+SELECT slug, name, sale_price, opacity, sort_order, is_active
+FROM public.constructor_wrappings
+ORDER BY sort_order, id;
+
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'public.constructor_wrappings'::regclass
+ORDER BY conname;
+```
+
 ## 3D-модели цветов
 
 Файл: `20260914_flower_models.sql`. Миграция подготовлена, автоматически не применяется.

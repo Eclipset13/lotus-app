@@ -42,8 +42,8 @@ test("group ten stock instances, stable identities, decrement and disappear with
 
 test("navigation grants exactly the permitted sections and additive roles", () => {
   const expected = {
-    super_admin: ["/admin", "/admin/products", "/admin/deliveries", "/admin/customers", "/admin/suppliers", "/admin/purchases", "/admin/inventory", "/admin/staff", "/admin/audit"],
-    florist: ["/admin", "/admin/products", "/admin/customers", "/admin/inventory"],
+    super_admin: ["/admin", "/admin/products", "/admin/wrappings", "/admin/deliveries", "/admin/customers", "/admin/suppliers", "/admin/purchases", "/admin/inventory", "/admin/staff", "/admin/audit"],
+    florist: ["/admin", "/admin/products", "/admin/wrappings", "/admin/customers", "/admin/inventory"],
     inventory_manager: ["/admin/suppliers", "/admin/purchases", "/admin/inventory"],
     courier: ["/admin/deliveries"],
   };
@@ -117,6 +117,9 @@ async function fixture() {
       description text, color varchar(80), is_active boolean DEFAULT true, unit varchar(30) DEFAULT 'шт.', image_url text,
       constructor_kind varchar(20), model_3d jsonb,
       CONSTRAINT flowers_prices_check CHECK (purchase_price>=0 AND sale_price>=0));
+    CREATE TEMP TABLE constructor_wrappings (id bigint, slug text, name text, subtitle text, color text,
+      ribbon_color text, sale_price numeric, opacity numeric, sort_order int, is_active boolean);
+    INSERT INTO constructor_wrappings VALUES (1,'blush','Пудровая','Нежно-розовая','#f4cfc8','#b85d70',25,0.5,10,true);
     CREATE TEMP TABLE bouquet_items (bouquet_id bigint, flower_id bigint, quantity int);
     CREATE TEMP TABLE order_items (flower_id bigint, custom_configuration jsonb, custom_summary jsonb, bouquet_composition_snapshot jsonb);
     CREATE TEMP TABLE stock_movements (id bigint GENERATED ALWAYS AS IDENTITY, flower_id bigint, supplier_id bigint, purchase_id bigint, movement_type text, quantity_change int, unit_cost numeric, note text);
@@ -431,7 +434,7 @@ test("flower and category CRUD validates identity, preserves stock, powers const
     const legacy = constructor.verifyCustomBouquet({
       schemaVersion: 1, wrappingKind: "blush",
       flowers: [{ id: "legacy-1", kind: "rose", position: [1, 2, 3], rotation: [0, 0, 0] }],
-    }, stock.flowers, stock.legacyLinks);
+    }, stock.flowers, stock.legacyLinks, stock.wrappings);
     assert.equal(legacy.schemaVersion, 2);
     assert.equal(legacy.flowers[0].flowerId, String(flower.id));
     assert.deepEqual(Array.from(legacy.flowers[0].position), [1, 2, 3]);
@@ -688,7 +691,7 @@ test("direct forbidden pages, APIs and uploads refuse every role before touching
       ["src/app/api/admin/flowers/[flowerId]/model/route.ts","models.manage","DELETE"],
       ["src/app/api/db-check/route.ts","settings.manage","GET"],
     ];
-    const pagePermissions={"":"orders.read",inventory:"inventory.read",products:"products.manage",customers:"customers.read",
+    const pagePermissions={"":"orders.read",inventory:"inventory.read",products:"products.manage",wrappings:"products.manage",customers:"customers.read",
       suppliers:"suppliers.manage",purchases:"purchases.manage",deliveries:"deliveries.read",staff:"staff.manage",audit:"settings.manage"};
     function pages(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?pages(join(dir,e.name)):e.name==="page.tsx"?[join(dir,e.name)]:[]);}
     for(const role of permissions.STAFF_ROLES){

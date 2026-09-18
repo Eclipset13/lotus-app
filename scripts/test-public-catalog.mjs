@@ -17,7 +17,7 @@ function loadTs(file, overrides = {}) {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
   runInNewContext(source, {
-    exports, console, Error,
+    exports, console, process, Error, URL, FormData, Uint8Array,
     require: (name) => {
       if (name in overrides) return overrides[name];
       if (name === "server-only") return {};

@@ -99,6 +99,8 @@ async function fixture() {
       CREATE TEMP TABLE roles (id int, code text);
       CREATE TEMP TABLE user_roles (user_id uuid, role_id int);
       CREATE TEMP TABLE bouquets (id bigint, name text, sale_price numeric, is_active boolean);
+      CREATE TEMP TABLE constructor_wrappings (id bigint, slug text, name text, subtitle text, color text,
+        ribbon_color text, sale_price numeric, opacity numeric, sort_order int, is_active boolean);
       CREATE TEMP TABLE flowers (id bigint, name text, stock_quantity int,
         color text, image_url text, sale_price numeric DEFAULT 18, purchase_price numeric DEFAULT 5,
         constructor_kind text, is_active boolean DEFAULT true);
@@ -130,6 +132,7 @@ async function fixture() {
       INSERT INTO bouquets VALUES (1, 'Розы', 100, true), (9223372036854775807, 'Розы', 100, true);
       INSERT INTO flowers (id, name, stock_quantity, constructor_kind) VALUES (1, 'Роза', 100, 'rose');
       INSERT INTO bouquet_items VALUES (1, 1, 3), (9223372036854775807, 1, 3);
+      INSERT INTO constructor_wrappings VALUES (1,'blush','Пудровая','Нежно-розовая','#f4cfc8','#b85d70',25,0.5,10,true);
     `);
   } catch (error) {
     await client.end();
@@ -422,6 +425,43 @@ test("v2 identity, geometry and cart round-trip preserve every variety; legacy c
   assert.equal(bouquet.sanitizeCustomBouquetConfig(duplicated), null);
 });
 
+test("constructor wrapping price, activity and immutable order snapshot come from PostgreSQL", async () => {
+  const f = await fixture();
+  try {
+    const post = checkout(f.db);
+    const body = orderBody();
+    body.fulfillmentType = "pickup";
+    body.customer.phone = "+992900555111";
+    body.items = [structuredClone(customItem)];
+    body.items[0].displayedUnitPrice = 43;
+    await f.client.query("UPDATE pg_temp.constructor_wrappings SET name='Пудровая новая',sale_price=30 WHERE slug='blush'");
+    const response = await submit(post, body);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.totalAmount, 48); assert.equal(result.priceAdjusted, true);
+    const saved = (await f.client.query("SELECT custom_configuration,custom_summary,unit_price::text FROM pg_temp.order_items")).rows[0];
+    assert.equal(saved.unit_price, "48.00");
+    assert.equal(saved.custom_configuration.wrappingSnapshot.name, "Пудровая новая");
+    assert.equal(saved.custom_configuration.wrappingSnapshot.salePrice, 30);
+    assert.equal(saved.custom_summary.wrappingName, "Пудровая новая");
+    await f.client.query("UPDATE pg_temp.constructor_wrappings SET name='После заказа',sale_price=99 WHERE slug='blush'");
+    const historical = (await f.client.query("SELECT custom_configuration,custom_summary FROM pg_temp.order_items")).rows[0];
+    assert.equal(historical.custom_configuration.wrappingSnapshot.name, "Пудровая новая");
+    assert.equal(historical.custom_summary.wrappingName, "Пудровая новая");
+
+    const before = await f.snapshot();
+    for (const [slug, disable] of [["unknown", false], ["blush", true]]) {
+      if (disable) await f.client.query("UPDATE pg_temp.constructor_wrappings SET is_active=false WHERE slug='blush'");
+      const invalid = orderBody(); invalid.customer.phone = "+992900555222";
+      invalid.items = [structuredClone(customItem)]; invalid.items[0].configuration.wrappingKind = slug;
+      assert.equal((await submit(post, invalid)).status, 400);
+      if (disable) await f.client.query("UPDATE pg_temp.constructor_wrappings SET is_active=true WHERE slug='blush'");
+    }
+    const after = await f.snapshot();
+    assert.equal(after.orders.length, before.orders.length, "invalid wrapping rolls the whole order back");
+  } finally { await f.client.end(); }
+});
+
 async function installTemporaryLifecycleTriggers(client) {
   await client.query(`CREATE TEMP TABLE stock_movements (
     id bigint GENERATED ALWAYS AS IDENTITY, flower_id bigint, order_id uuid,
@@ -483,6 +523,7 @@ test("stock assortment, aggregate cart availability, trusted snapshots and exact
     const stockModule = loadTs("src/lib/constructor-stock.ts", { "@/lib/db": { db: { query: f.query } } });
     const stock = await stockModule.loadConstructorStock();
     assert.equal(stock.flowers.length, 5);
+    assert.deepEqual(stock.wrappings.map((item) => item.slug), ["blush"]);
     assert.equal(stock.flowers.find((flower) => flower.id === "2").availableQuantity, 6);
     assert.equal(stock.flowers.find((flower) => flower.id === "4").availableQuantity, 0);
     assert.ok(stock.flowers.every((flower) => !Object.keys(flower).some((key) => /purchase|cost|constructor/i.test(key))));

@@ -6,6 +6,7 @@ import {
   updateFlowerDetails,
   type InventoryActionState,
 } from "@/app/admin/inventory/actions";
+import { AdminProductImageField } from "@/components/admin-product-image-field";
 
 type CategoryOption = { id: string; name: string; is_active: boolean };
 
@@ -73,10 +74,7 @@ export function AdminFlowerDetailsForm({
           Минимальный остаток
           <input className={inputClass} name="min_stock_quantity" type="number" min="0" max="1000000" step="1" required defaultValue={flower?.min_stock_quantity ?? 0} />
         </label>
-        <label className={`${labelClass} md:col-span-2`}>
-          URL фотографии
-          <input className={inputClass} name="image_url" type="url" maxLength={2000} defaultValue={flower?.image_url ?? ""} placeholder="https://…" />
-        </label>
+        <div className="md:col-span-2"><AdminProductImageField currentUrl={flower?.image_url ?? null} /></div>
         <label className={`${labelClass} md:col-span-2`}>
           Описание
           <textarea className="mt-2 min-h-32 w-full rounded-2xl border border-[#ead8d1] bg-[#fffaf8] px-4 py-3 text-sm font-normal normal-case tracking-normal outline-none focus:border-[#d89b91] focus:ring-4 focus:ring-[#f4cbc4]/25" name="description" maxLength={5000} defaultValue={flower?.description ?? ""} />

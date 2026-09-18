@@ -13,7 +13,7 @@ const profile = await mkdtemp(join(tmpdir(), "lotus-groups-browser-"));
 await writeFile(join(routeDirectory,"page.tsx"), `import { BouquetConstructorLoader } from "@/components/bouquet-constructor-loader";
 export default async function Page({ searchParams }: { searchParams: Promise<{edit?: string}> }) {
   const {edit} = await searchParams;
-  return <main style={{height:"100dvh"}}><BouquetConstructorLoader editCartItemId={edit} legacyLinks={{}} flowers={[
+  return <main style={{height:"100dvh"}}><BouquetConstructorLoader editCartItemId={edit} legacyLinks={{}} wrappings={[{id:"1",slug:"blush",name:"Пудровая",subtitle:"Нежная",color:"#f4cfc8",ribbonColor:"#b85d70",salePrice:25,opacity:0.5,sortOrder:10}]} flowers={[
     {id:"9223372036854775700",name:"Белая эустома",salePrice:12,availableQuantity:50,color:null,imageUrl:null},
     {id:"9223372036854775701",name:"Белая эустома",salePrice:15,availableQuantity:50,color:null,imageUrl:null}
   ]}/></main>;

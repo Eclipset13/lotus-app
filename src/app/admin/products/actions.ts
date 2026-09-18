@@ -7,6 +7,9 @@ import type { PoolClient } from "pg";
 import { requirePermission } from "@/lib/admin-auth";
 import { audit } from "@/lib/admin-audit";
 import { db } from "@/lib/db";
+import { ProductImageInputError } from "@/lib/product-image";
+import { prepareProductImage, stageProductImage } from "@/lib/product-image-form";
+import { discardProductImageFile } from "@/lib/product-image-storage";
 
 export type ProductActionState = { error: string };
 
@@ -72,10 +75,9 @@ function parseComposition(formData: FormData): BouquetCompositionItem[] {
   return result;
 }
 
-function parseBouquetForm(formData: FormData) {
+function parseBouquetForm(formData: FormData, imageUrl: string | null = null) {
   const name = readText(formData, "name", 255);
   const description = readText(formData, "description", 5_000);
-  const imageUrl = readText(formData, "image_url", 2_000);
   const price = Number(
     String(formData.get("price") ?? "").trim().replace(",", "."),
   );
@@ -95,7 +97,7 @@ function parseBouquetForm(formData: FormData) {
   return {
     name,
     description: description || null,
-    imageUrl: imageUrl || null,
+    imageUrl,
     price,
     isActive,
     composition,
@@ -144,7 +146,8 @@ async function replaceComposition(
 }
 
 function safeProductError(prefix: string, error: unknown): ProductActionState {
-  if (error instanceof ProductValidationError) return { error: error.message };
+  if (error instanceof ProductValidationError || error instanceof ProductImageInputError) return { error: error.message };
+  if ((error as { code?: string })?.code === "23503") return { error: "Букет используется в заказе и должен остаться скрытым для сохранения истории" };
   console.error(`${prefix}:`, error);
   return { error: "Не удалось сохранить букет" };
 }
@@ -156,8 +159,16 @@ export async function createProduct(
   const session = await requirePermission("products.manage");
 
   let values: ReturnType<typeof parseBouquetForm>;
+  let stagedAsset: string | null = null;
+  let imageSource: "upload" | "external" | "removed" | "unchanged" = "unchanged";
+  let commitStarted = false;
   try {
-    values = parseBouquetForm(formData);
+    const prepared = await prepareProductImage(formData, null);
+    values = parseBouquetForm(formData, prepared.imageUrl);
+    const staged = await stageProductImage(prepared);
+    stagedAsset = staged.assetId;
+    imageSource = staged.source;
+    values.imageUrl = staged.imageUrl;
   } catch (error) {
     return safeProductError("createProduct failed", error);
   }
@@ -196,7 +207,9 @@ export async function createProduct(
         is_active: values.isActive,
         composition: values.composition.map((item) => ({ flower_id: item.flowerId, quantity: item.quantity })),
       },
+      image_source: imageSource,
     });
+    commitStarted = true;
     await client.query("COMMIT");
   } catch (error) {
     if (client) {
@@ -204,6 +217,7 @@ export async function createProduct(
         console.error("createProduct rollback failed:", rollbackError);
       });
     }
+    if (stagedAsset && !commitStarted) await discardProductImageFile(stagedAsset).catch((cleanupError) => console.error("Product image cleanup failed", cleanupError));
     return safeProductError("createProduct failed", error);
   } finally {
     client?.release();
@@ -224,6 +238,8 @@ export async function updateProduct(
   if (!isDatabaseId(productId)) return { error: "Букет не найден" };
 
   let values: ReturnType<typeof parseBouquetForm>;
+  let stagedAsset: string | null = null;
+  let commitStarted = false;
   try {
     values = parseBouquetForm(formData);
   } catch (error) {
@@ -255,6 +271,10 @@ export async function updateProduct(
       throw new ProductValidationError("Букет не найден");
     }
     const before = bouquetResult.rows[0];
+    const preparedImage = await prepareProductImage(formData, before.image_url);
+    const stagedImage = await stageProductImage(preparedImage);
+    stagedAsset = stagedImage.assetId;
+    values.imageUrl = stagedImage.imageUrl;
     const nextComposition = values.composition
       .map((item) => ({ flower_id: item.flowerId, quantity: item.quantity }))
       .sort((first, second) => BigInt(first.flower_id) < BigInt(second.flower_id) ? -1 : 1);
@@ -298,7 +318,10 @@ export async function updateProduct(
         is_active: values.isActive,
         composition: nextComposition,
       },
+      image_changed: before.image_url !== values.imageUrl,
+      image_source: before.image_url !== values.imageUrl ? preparedImage.source : "unchanged",
     });
+    commitStarted = true;
     await client.query("COMMIT");
   } catch (error) {
     if (client) {
@@ -306,6 +329,7 @@ export async function updateProduct(
         console.error("updateProduct rollback failed:", rollbackError);
       });
     }
+    if (stagedAsset && !commitStarted) await discardProductImageFile(stagedAsset).catch((cleanupError) => console.error("Product image cleanup failed", cleanupError));
     return safeProductError("updateProduct failed", error);
   } finally {
     client?.release();
@@ -349,4 +373,48 @@ export async function toggleProductVisibility(productId: string) {
   revalidatePath("/admin/products");
   revalidatePath("/");
   revalidatePath("/catalog");
+}
+
+export async function deleteProduct(
+  productId: string,
+  _previousState: ProductActionState,
+  _formData: FormData,
+): Promise<ProductActionState> {
+  void _previousState;
+  void _formData;
+  const session = await requirePermission("products.manage");
+  if (!isDatabaseId(productId)) return { error: "Букет не найден" };
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query<{ name: string; is_active: boolean }>(
+      "SELECT name,is_active FROM public.bouquets WHERE id=$1::bigint FOR UPDATE", [productId]);
+    if (!locked.rows.length) {
+      await client.query("COMMIT");
+      return { error: "Букет уже удалён" };
+    }
+    if (locked.rows[0].is_active) throw new ProductValidationError("Сначала скройте букет из каталога");
+    // Prevent an order item from being inserted between the dependency check and delete.
+    await client.query("LOCK TABLE public.order_items IN SHARE ROW EXCLUSIVE MODE");
+    const used = await client.query<{ used: boolean }>(
+      "SELECT EXISTS(SELECT 1 FROM public.order_items WHERE bouquet_id=$1::bigint) AS used", [productId]);
+    if (used.rows[0]?.used) {
+      throw new ProductValidationError("Букет уже использован в заказе. Оставьте его скрытым для сохранения истории.");
+    }
+    await client.query("DELETE FROM public.bouquet_items WHERE bouquet_id=$1::bigint", [productId]);
+    const removed = await client.query("DELETE FROM public.bouquets WHERE id=$1::bigint", [productId]);
+    if (removed.rowCount !== 1) throw new Error("Concurrent bouquet deletion");
+    await audit(client, session.userId, "bouquet.delete", productId, { name: locked.rows[0].name });
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if ((error as { code?: string })?.code === "23503" || (error as { code?: string })?.code === "40001") {
+      return { error: "Букет получил связь с заказом. Оставьте его скрытым для сохранения истории." };
+    }
+    return safeProductError("deleteProduct failed", error);
+  } finally { client.release(); }
+  revalidatePath("/admin/products");
+  revalidatePath("/");
+  revalidatePath("/catalog");
+  redirect("/admin/products");
 }

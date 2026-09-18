@@ -15,7 +15,7 @@ import {
   getBouquetCameraPosition,
 } from "@/components/bouquet/bouquet-visual-scene";
 import {
-  CUSTOM_BOUQUET_WRAPPINGS,
+  resolveWrappingSnapshot,
   type CustomBouquetConfig,
 } from "@/lib/bouquet";
 import { getBouquetRadius } from "@/lib/bouquet-layout";
@@ -32,9 +32,7 @@ export default function AdminBouquetViewerCanvas({
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const sceneHostRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const wrapping = CUSTOM_BOUQUET_WRAPPINGS.find(
-    (option) => option.kind === configuration.wrappingKind,
-  );
+  const wrapping = resolveWrappingSnapshot(configuration);
   const cameraPosition = useMemo(
     () => getBouquetCameraPosition(configuration.flowers),
     [configuration.flowers],

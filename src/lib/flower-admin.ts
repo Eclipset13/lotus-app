@@ -65,7 +65,7 @@ function parseMinimum(value: FormDataEntryValue | null) {
   return Number.isSafeInteger(number) && number <= MAX_MIN_STOCK ? number : null;
 }
 
-export function parseFlowerDetails(formData: FormData): ParseResult<FlowerDetailsInput> {
+export function parseFlowerDetails(formData: FormData, imageUrlOverride?: string | null): ParseResult<FlowerDetailsInput> {
   const name = normalizedText(formData.get("name"));
   if (!name || name.length > 140 || unsafeControls(name)) return { value: null, error: "Название должно содержать от 1 до 140 символов" };
   const rawSlug = normalizedText(formData.get("slug"));
@@ -79,9 +79,9 @@ export function parseFlowerDetails(formData: FormData): ParseResult<FlowerDetail
   if (color.error) return { value: null, error: "Цвет должен быть не длиннее 80 символов" };
   const unit = normalizedText(formData.get("unit"));
   if (!unit || unit.length > 30 || unsafeControls(unit)) return { value: null, error: "Единица измерения должна содержать от 1 до 30 символов" };
-  const image = optionalText(formData.get("image_url"), 2000);
+  const image = imageUrlOverride === undefined ? optionalText(formData.get("image_url"), 2000) : { value: imageUrlOverride, error: "" };
   if (image.error) return { value: null, error: "URL фотографии слишком длинный или содержит недопустимые символы" };
-  if (image.value) {
+  if (imageUrlOverride === undefined && image.value) {
     try {
       const parsed = new URL(image.value);
       if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
